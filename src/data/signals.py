@@ -130,7 +130,8 @@ class SignalDataset:
         base_path: Union[str, Path],
         filename_column: str = "filename_lr",
         label_column: Optional[str] = None,
-        transform: Optional[callable] = None
+        transform: Optional[callable] = None,
+        cache_dir: Optional[Union[str, Path]] = None
     ):
         """
         Initialize the signal dataset.
@@ -147,6 +148,9 @@ class SignalDataset:
         self.filename_column = filename_column
         self.label_column = label_column
         self.transform = transform
+        self.cache_dir = Path(cache_dir) if cache_dir else None
+        if self.cache_dir is not None:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
         
         # Store index for iteration
         self._indices = list(df.index)
@@ -169,9 +173,17 @@ class SignalDataset:
         """
         ecg_id = self._indices[idx]
         row = self.df.loc[ecg_id]
-        
-        # Load signal
-        signal, _ = load_single_signal(row[self.filename_column], self.base_path)
+
+        # Load signal (with optional cache)
+        signal = None
+        if self.cache_dir is not None:
+            cache_path = self._cache_path(ecg_id, row[self.filename_column])
+            if cache_path.exists():
+                signal = np.load(cache_path)
+        if signal is None:
+            signal, _ = load_single_signal(row[self.filename_column], self.base_path)
+            if self.cache_dir is not None:
+                np.save(cache_path, signal)
         
         # Apply transform if specified
         if self.transform is not None:
@@ -188,6 +200,10 @@ class SignalDataset:
         """Iterate over all samples."""
         for idx in range(len(self)):
             yield self[idx]
+
+    def _cache_path(self, ecg_id: int, filename: str) -> Path:
+        safe_name = filename.replace("/", "_")
+        return self.cache_dir / f"{ecg_id}_{safe_name}.npy"
 
 
 # ============================================================================
@@ -234,6 +250,44 @@ def normalize_signal(
     
     else:
         raise ValueError(f"Unknown normalization method: {method}")
+
+
+def compute_channel_stats(
+    signals: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Compute per-channel mean and std using training signals.
+
+    Args:
+        signals: Array of shape (n_samples, n_timesteps, n_channels)
+
+    Returns:
+        Tuple of (mean, std) arrays of shape (1, 1, n_channels)
+    """
+    mean = signals.mean(axis=(0, 1), keepdims=True)
+    std = signals.std(axis=(0, 1), keepdims=True)
+    std = np.where(std == 0, 1, std)
+    return mean, std
+
+
+def normalize_with_stats(
+    signal: np.ndarray,
+    mean: np.ndarray,
+    std: np.ndarray
+) -> np.ndarray:
+    """
+    Normalize signal using precomputed per-channel stats.
+
+    Args:
+        signal: Input signal of shape (samples, channels) or
+            (batch, samples, channels)
+        mean: Mean array broadcastable to signal
+        std: Std array broadcastable to signal
+
+    Returns:
+        Normalized signal
+    """
+    return (signal - mean) / std
 
 
 def resample_signal(
