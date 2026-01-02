@@ -78,6 +78,7 @@ class TestConfig:
         assert config.val_folds == [9]
         assert config.test_folds == [10]
         assert config.random_seed == 42
+        assert config.min_likelihood == 50.0
     
     def test_config_paths(self, config):
         """Test that config paths exist."""
