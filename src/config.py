@@ -31,7 +31,7 @@ class PTBXLConfig:
     
     # Minimum likelihood threshold for label assignment
     # PTB-XL uses 0-100 scale for likelihood
-    min_likelihood: float = 0.0
+    min_likelihood: float = 50.0
     
     # Label task type
     task: str = "binary"  # "binary" for MI vs NORM, "multiclass" for 5-class
@@ -65,6 +65,7 @@ class PTBXLConfig:
 
 # Diagnostic class mappings
 DIAGNOSTIC_SUPERCLASSES = ["NORM", "MI", "STTC", "CD", "HYP"]
+DIAGNOSTIC_PRIORITY = ["MI", "STTC", "CD", "HYP", "NORM"]
 
 # All MI-related SCP codes from scp_statements.csv
 # These include both definite MI and subendocardial injury patterns

@@ -36,7 +36,7 @@ def main():
     print(f"Loaded {len(scp)} SCP statement types")
     
     # Add binary labels
-    df = add_binary_mi_labels(df, scp)
+    df = add_binary_mi_labels(df, scp, min_likelihood=config.min_likelihood)
     print()
     print("Binary MI vs NORM label distribution:")
     counts = df["label_mi_norm"].value_counts()
