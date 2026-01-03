@@ -1,4 +1,4 @@
-"""Compare CNN and XGBoost test metrics side-by-side."""
+"""Compare CNN and XGBoost test metrics and persist a combined report."""
 
 from __future__ import annotations
 
@@ -6,60 +6,62 @@ import argparse
 import csv
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Dict, List
+
+try:
+    import pandas as pd
+except ImportError:  # pragma: no cover - optional dependency
+    pd = None
 
 
-METRIC_ORDER = ["roc_auc", "pr_auc", "f1", "accuracy", "loss"]
+METRIC_COLUMNS = ["roc_auc", "pr_auc", "f1", "accuracy", "loss"]
 
 
-def load_json(path: Path) -> Dict[str, Any]:
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Metrics file not found: {path}. "
-            "Run the corresponding training script or pass the correct path."
-        )
+def load_json(path: Path) -> Dict[str, object]:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
 
-def extract_test_metrics(payload: Dict[str, Any], label: str) -> Dict[str, Any]:
-    if "test" in payload:
-        metrics = payload["test"]
-        if not isinstance(metrics, dict):
-            raise ValueError(f"Invalid test metrics format for {label}.")
-        return metrics
-    if "metrics" in payload:
-        metrics = payload["metrics"]
-        if not isinstance(metrics, dict):
-            raise ValueError(f"Invalid metrics format for {label}.")
-        return metrics
-    raise KeyError(
-        f"Unable to find test metrics for {label}. Expected a 'test' key in {label} metrics JSON."
-    )
+def extract_metrics(record: Dict[str, object]) -> Dict[str, object]:
+    metrics = record.get("test")
+    if metrics is None or not isinstance(metrics, dict):
+        raise ValueError("Missing 'test' metrics in JSON payload.")
+    return metrics
 
 
-def build_row(model_name: str, metrics: Dict[str, Any]) -> Dict[str, Any]:
-    row: Dict[str, Any] = {"model": model_name}
-    for key in METRIC_ORDER:
-        value = metrics.get(key)
-        row[key] = value
+def build_row(name: str, metrics: Dict[str, object]) -> Dict[str, object]:
+    row = {"model": name}
+    for column in METRIC_COLUMNS:
+        row[column] = metrics.get(column)
     return row
 
 
-def write_outputs(rows: Iterable[Dict[str, Any]], output_dir: Path) -> None:
+def format_table(rows: List[Dict[str, object]]) -> str:
+    if pd is not None:
+        frame = pd.DataFrame(rows)
+        return frame.to_string(index=False)
+
+    headers = ["model", *METRIC_COLUMNS]
+    lines = [",".join(headers)]
+    for row in rows:
+        values = ["" if row.get(key) is None else str(row.get(key)) for key in headers]
+        lines.append(",".join(values))
+    return "\n".join(lines)
+
+
+def write_outputs(rows: List[Dict[str, object]], output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    json_path = output_dir / "compare_metrics.json"
+
     csv_path = output_dir / "compare_metrics.csv"
+    json_path = output_dir / "compare_metrics.json"
 
-    rows_list: List[Dict[str, Any]] = list(rows)
-    with json_path.open("w", encoding="utf-8") as handle:
-        json.dump(rows_list, handle, indent=2)
-
-    fieldnames = ["model", *METRIC_ORDER]
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer = csv.DictWriter(handle, fieldnames=["model", *METRIC_COLUMNS])
         writer.writeheader()
-        writer.writerows(rows_list)
+        writer.writerows(rows)
+
+    with json_path.open("w", encoding="utf-8") as handle:
+        json.dump(rows, handle, indent=2)
 
 
 def main() -> None:
@@ -68,35 +70,26 @@ def main() -> None:
         "--cnn-metrics",
         type=Path,
         default=Path("logs/metrics.json"),
-        help="Path to CNN metrics.json (default: logs/metrics.json)",
+        help="Path to CNN metrics.json file",
     )
     parser.add_argument(
         "--xgb-metrics",
         type=Path,
         default=Path("logs/xgb/metrics.json"),
-        help="Path to XGBoost metrics.json (default: logs/xgb/metrics.json)",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("logs"),
-        help="Directory for compare_metrics.json/csv (default: logs)",
+        help="Path to XGBoost metrics.json file",
     )
     args = parser.parse_args()
 
     cnn_payload = load_json(args.cnn_metrics)
     xgb_payload = load_json(args.xgb_metrics)
 
-    cnn_metrics = extract_test_metrics(cnn_payload, "CNN")
-    xgb_metrics = extract_test_metrics(xgb_payload, "XGBoost")
+    cnn_metrics = extract_metrics(cnn_payload)
+    xgb_metrics = extract_metrics(xgb_payload)
 
-    rows = [
-        build_row("cnn", cnn_metrics),
-        build_row("xgb", xgb_metrics),
-    ]
-    write_outputs(rows, args.output_dir)
+    rows = [build_row("cnn", cnn_metrics), build_row("xgb", xgb_metrics)]
 
-    print(json.dumps(rows, indent=2))
+    print(format_table(rows))
+    write_outputs(rows, Path("logs"))
 
 
 if __name__ == "__main__":
