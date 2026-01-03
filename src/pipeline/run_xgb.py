@@ -72,7 +72,11 @@ def main() -> None:
     with output_path.open("w", encoding="utf-8") as handle:
         json.dump(results, handle, indent=2)
 
+    model_path = output_dir / "xgb_model.json"
+    model.save_model(model_path)
+
     print(json.dumps(results, indent=2))
+    print(f"Saved XGBoost model to: {model_path}")
 
 
 if __name__ == "__main__":
