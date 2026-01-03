@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Tuple
 
 import numpy as np
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score, average_precision_score, classification_report, roc_auc_score
 from xgboost import XGBClassifier
 
 
@@ -21,6 +21,35 @@ class XGBConfig:
     colsample_bytree: float = 0.8
     objective: str = "binary:logistic"
     eval_metric: str = "logloss"
+    random_state: int = 42
+
+
+def predict_xgb(
+    model: XGBClassifier,
+    features: np.ndarray,
+    threshold: float = 0.5,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Predict probabilities and binary labels with an XGBoost model."""
+
+    proba = model.predict_proba(features)[:, 1]
+    preds = (proba >= threshold).astype(int)
+    return proba, preds
+
+
+def compute_binary_metrics(
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    threshold: float = 0.5,
+) -> Dict[str, Any]:
+    """Compute accuracy, ROC-AUC, PR-AUC, and a classification report."""
+
+    preds = (y_proba >= threshold).astype(int)
+    return {
+        "accuracy": float(accuracy_score(y_true, preds)),
+        "roc_auc": float(roc_auc_score(y_true, y_proba)),
+        "pr_auc": float(average_precision_score(y_true, y_proba)),
+        "report": classification_report(y_true, preds, output_dict=True),
+    }
 
 
 def train_xgb(
@@ -41,12 +70,9 @@ def train_xgb(
         colsample_bytree=config.colsample_bytree,
         objective=config.objective,
         eval_metric=config.eval_metric,
+        random_state=config.random_state,
     )
     model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
-    preds = model.predict(X_val)
-
-    metrics = {
-        "accuracy": float(accuracy_score(y_val, preds)),
-        "report": classification_report(y_val, preds, output_dict=True),
-    }
+    val_proba, _ = predict_xgb(model, X_val)
+    metrics = compute_binary_metrics(y_val, val_proba)
     return model, metrics
