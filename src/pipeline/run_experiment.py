@@ -98,7 +98,9 @@ def train_and_evaluate(
     history: List[Dict[str, float]] = []
 
     for epoch in range(1, epochs + 1):
+        print(f"Epoch {epoch}/{epochs} - training...")
         train_loss = train_one_epoch(model, loaders["train"], optimizer, device)
+        print(f"Epoch {epoch}/{epochs} - validating...")
         val_loss, val_metrics = validate(model, loaders["val"], device)
 
         record = {
@@ -108,8 +110,35 @@ def train_and_evaluate(
             **val_metrics,
         }
         history.append(record)
+        print(
+            "Epoch {epoch}/{epochs} summary: "
+            "train_loss={train_loss:.4f} "
+            "val_loss={val_loss:.4f} "
+            "roc_auc={roc_auc:.4f} "
+            "pr_auc={pr_auc:.4f} "
+            "f1={f1:.4f} "
+            "accuracy={accuracy:.4f}".format(
+                epoch=epoch,
+                epochs=epochs,
+                train_loss=train_loss,
+                val_loss=val_loss,
+                **val_metrics,
+            )
+        )
 
+    print("Evaluating on test set...")
     test_loss, test_metrics = validate(model, loaders["test"], device)
+    print(
+        "Test summary: "
+        "loss={loss:.4f} "
+        "roc_auc={roc_auc:.4f} "
+        "pr_auc={pr_auc:.4f} "
+        "f1={f1:.4f} "
+        "accuracy={accuracy:.4f}".format(
+            loss=test_loss,
+            **test_metrics,
+        )
+    )
 
     return {
         "history": history,
@@ -213,6 +242,13 @@ def main() -> None:
     }
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    print(
+        "Dataset sizes - "
+        f"train: {len(datasets['train'])}, "
+        f"val: {len(datasets['val'])}, "
+        f"test: {len(datasets['test'])}"
+    )
     model_config = ECGCNNConfig()
     backbone = ECGBackbone(model_config)
     head = BinaryHead(model_config.num_filters)
