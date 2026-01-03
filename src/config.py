@@ -15,7 +15,8 @@ class PTBXLConfig:
     """Configuration for PTB-XL dataset processing."""
     
     # Dataset paths (relative to project root by default)
-    data_root: Path = field(default_factory=lambda: Path("physionet.org/files/ptb-xl/1.0.3"))
+    data_root: Path = field(default_factory=lambda: Path("data"))
+    metadata_root: Path = field(default_factory=lambda: Path("data/ptbxl_meta"))
     
     # Sampling rate: 100 or 500 Hz
     sampling_rate: int = 100
@@ -39,12 +40,12 @@ class PTBXLConfig:
     @property
     def metadata_path(self) -> Path:
         """Path to ptbxl_database.csv"""
-        return self.data_root / "ptbxl_database.csv"
+        return self.metadata_root / "ptbxl_database.csv"
     
     @property
     def scp_statements_path(self) -> Path:
         """Path to scp_statements.csv"""
-        return self.data_root / "scp_statements.csv"
+        return self.metadata_root / "scp_statements.csv"
     
     @property
     def records_path(self) -> Path:
@@ -99,8 +100,9 @@ def get_default_config(project_root: Optional[Path] = None) -> PTBXLConfig:
         PTBXLConfig instance with paths resolved relative to project_root.
     """
     if project_root is None:
-        project_root = Path.cwd()
+        project_root = Path(__file__).resolve().parents[1]
     
     return PTBXLConfig(
-        data_root=project_root / "physionet.org" / "files" / "ptb-xl" / "1.0.3"
+        data_root=project_root / "data",
+        metadata_root=project_root / "data" / "ptbxl_meta",
     )
