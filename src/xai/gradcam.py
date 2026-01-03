@@ -33,16 +33,28 @@ class GradCAM:
         """Generate Grad-CAM heatmap for the given inputs."""
 
         self.model.zero_grad(set_to_none=True)
-        logits, _ = self.model(inputs)
-        if class_index is None:
-            class_index = int(torch.argmax(logits, dim=1)[0])
-        score = logits[:, class_index].sum()
+        logits = self.model(inputs)
+        if isinstance(logits, (tuple, list)):
+            raise TypeError("GradCAM expects model output to be logits only.")
+        if logits.dim() == 1:
+            score = logits.sum()
+        elif logits.dim() == 2:
+            if class_index is None:
+                class_index = int(torch.argmax(logits, dim=1)[0])
+            score = logits[:, class_index].sum()
+        else:
+            raise ValueError("Logits tensor must be 1D or 2D.")
         score.backward(retain_graph=True)
 
         if self.gradients is None or self.activations is None:
             raise RuntimeError("Gradients or activations are not captured.")
 
-        weights = torch.mean(self.gradients, dim=(2, 3), keepdim=True)
+        if self.gradients.dim() == 3:
+            weights = torch.mean(self.gradients, dim=2, keepdim=True)
+        elif self.gradients.dim() == 4:
+            weights = torch.mean(self.gradients, dim=(2, 3), keepdim=True)
+        else:
+            raise ValueError("Gradients tensor must be 3D or 4D.")
         cam = torch.sum(weights * self.activations, dim=1)
         cam = torch.relu(cam)
         cam = cam - cam.min()
