@@ -23,7 +23,7 @@ from torch.utils.data import DataLoader
 
 from src.config import get_default_config
 from src.data.loader import load_ptbxl_metadata
-from src.data.signals import SignalDataset
+from src.data.signals import SignalDataset, compute_channel_stats_streaming, normalize_with_stats
 from src.data.splits import get_standard_split
 from src.models.cnn import ECGCNN, ECGCNNConfig
 from src.models.xgb import load_xgb, predict_xgb
@@ -148,6 +148,24 @@ def get_cnn_embeddings(
 
     return np.concatenate(embeddings_list)
 
+
+def build_loader(
+    df: pd.DataFrame,
+    indices: np.ndarray,
+    config,
+    batch_size: int,
+    transform: Optional[callable] = None,
+) -> DataLoader:
+    dataset = SignalDataset(
+        df=df.loc[indices],
+        base_path=config.data_root,
+        filename_column=config.filename_column,
+        label_column="label_mi_norm",
+        transform=transform,
+        expected_channels=12,
+    )
+    return DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+
 def _load_json(path: Path) -> Dict[str, object]:
     if not path.exists():
         raise FileNotFoundError(f"Metrics file not found: {path}")
@@ -176,6 +194,26 @@ def _format_metrics(name: str, metrics: Dict[str, float]) -> Dict[str, object]:
         "F1": metrics.get("f1"),
         "Accuracy": metrics.get("accuracy"),
     }
+
+
+def _save_ensemble_config(
+    output_dir: Path,
+    best_alpha: float,
+    best_score: float,
+    metric: str,
+    alpha_scores: Dict[str, float],
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "best_alpha": float(best_alpha),
+        "best_score": float(best_score),
+        "metric": metric,
+        "alpha_scores": alpha_scores,
+    }
+    config_path = output_dir / "ensemble_config.json"
+    with config_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+    return config_path
 
 
 def compare_from_metrics(
@@ -256,23 +294,35 @@ def main() -> None:
     # Filter valid labels and test split
     df = df[df["label_mi_norm"] != -1].copy()
     
-    # Get test split
-    _, _, test_indices = get_standard_split(df)
+    # Get train/val/test split
+    train_indices, val_indices, test_indices = get_standard_split(df)
     
-    # Intersect valid labels with test split
+    # Intersect valid labels with splits
+    valid_train_indices = np.intersect1d(train_indices, df.index)
+    valid_val_indices = np.intersect1d(val_indices, df.index)
     valid_test_indices = np.intersect1d(test_indices, df.index)
+    print(f"Train Set Size: {len(valid_train_indices)}")
+    print(f"Validation Set Size: {len(valid_val_indices)}")
     print(f"Test Set Size: {len(valid_test_indices)}")
-    
-    # Create Dataset & DataLoader
-    test_dataset = SignalDataset(
-        df=df.loc[valid_test_indices],
-        # CSV filenames include 'records100/', so use data_root as base
+
+    stats_batch_size = 128
+    mean, std = compute_channel_stats_streaming(
+        df.loc[valid_train_indices],
         base_path=config.data_root,
         filename_column=config.filename_column,
-        label_column="label_mi_norm"
+        batch_size=stats_batch_size,
+        progress=False,
+        expected_channels=12,
     )
 
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    def normalize(signal: np.ndarray) -> np.ndarray:
+        mean_flat = mean.reshape(-1)
+        std_flat = std.reshape(-1)
+        normalized = normalize_with_stats(signal, mean_flat, std_flat)
+        return np.transpose(normalized, (1, 0))
+
+    val_loader = build_loader(df, valid_val_indices, config, args.batch_size, transform=normalize)
+    test_loader = build_loader(df, valid_test_indices, config, args.batch_size, transform=normalize)
     
     # 2. CNN Inference
     print("Loading CNN model...")
@@ -304,7 +354,8 @@ def main() -> None:
         sys.exit(1)
         
     print("Running CNN inference...")
-    cnn_probs, y_true = get_cnn_probs(cnn_model, test_loader, args.device)
+    cnn_probs_val, y_val = get_cnn_probs(cnn_model, val_loader, args.device)
+    cnn_probs_test, y_test = get_cnn_probs(cnn_model, test_loader, args.device)
     
     # 3. XGB Inference
     print("Loading XGB model...")
@@ -315,22 +366,33 @@ def main() -> None:
     xgb_model = load_xgb(args.xgb_path)
     
     print("Extracting features for XGB...")
-    xgb_features = get_cnn_embeddings(cnn_model, test_loader, args.device)
-    
+    xgb_features_val = get_cnn_embeddings(cnn_model, val_loader, args.device)
+    xgb_features_test = get_cnn_embeddings(cnn_model, test_loader, args.device)
+
     print("Running XGB inference...")
-    xgb_probs, _ = predict_xgb(xgb_model, xgb_features)
-    
-    # 4. Ensemble with Optimized Alpha
-    print("\nOptimizing ensemble weight α...")
+    xgb_probs_val, _ = predict_xgb(xgb_model, xgb_features_val)
+    xgb_probs_test, _ = predict_xgb(xgb_model, xgb_features_test)
+
+    # 4. Ensemble with Optimized Alpha (validation)
+    print("\nOptimizing ensemble weight α (validation)...")
+    metric_name = "roc_auc"
     best_alpha, best_score, alpha_scores = optimize_ensemble_weight(
-        y_true, cnn_probs, xgb_probs, metric="roc_auc"
+        y_val, cnn_probs_val, xgb_probs_val, metric=metric_name
     )
     print(f"Best α = {best_alpha:.2f} (AUC = {best_score:.4f})")
+    config_path = _save_ensemble_config(
+        args.output_dir,
+        best_alpha,
+        best_score,
+        metric_name,
+        alpha_scores,
+    )
+    print(f"Saved ensemble config to {config_path}")
     
-    # Compute ensemble with optimal α
-    ensemble_probs_opt = best_alpha * cnn_probs + (1 - best_alpha) * xgb_probs
+    # Compute ensemble with optimal α on test
+    ensemble_probs_opt = best_alpha * cnn_probs_test + (1 - best_alpha) * xgb_probs_test
     # Also keep naive average for comparison
-    ensemble_probs_avg = (cnn_probs + xgb_probs) / 2
+    ensemble_probs_avg = (cnn_probs_test + xgb_probs_test) / 2
     
     # 5. Metrics
     print("\nCalculating metrics...")
@@ -347,10 +409,10 @@ def main() -> None:
         }
 
     results = []
-    results.append(calc_metrics(y_true, cnn_probs, "CNN"))
-    results.append(calc_metrics(y_true, xgb_probs, "XGBoost"))
-    results.append(calc_metrics(y_true, ensemble_probs_avg, "Ensemble (α=0.5)"))
-    results.append(calc_metrics(y_true, ensemble_probs_opt, f"Ensemble (α={best_alpha:.2f})"))
+    results.append(calc_metrics(y_test, cnn_probs_test, "CNN"))
+    results.append(calc_metrics(y_test, xgb_probs_test, "XGBoost"))
+    results.append(calc_metrics(y_test, ensemble_probs_avg, "Ensemble (α=0.5)"))
+    results.append(calc_metrics(y_test, ensemble_probs_opt, f"Ensemble (α={best_alpha:.2f})"))
     
     results_df = pd.DataFrame(results)
     
