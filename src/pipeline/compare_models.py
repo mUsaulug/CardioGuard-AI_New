@@ -239,6 +239,11 @@ def compare_from_metrics(
     return results_df
 
 
+def _write_markdown_table(results_df: pd.DataFrame, report_path: Path) -> None:
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    results_df.to_markdown(report_path, index=False, floatfmt=".4f")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare CNN, XGB, and Ensemble")
     parser.add_argument(
