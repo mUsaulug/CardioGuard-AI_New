@@ -24,7 +24,7 @@ def train_one_epoch(
     criterion = nn.BCEWithLogitsLoss()
     running_loss = 0.0
 
-    for inputs, labels in loader:
+    for inputs, labels, *_ in loader:
         inputs = inputs.to(device)
         labels = labels.to(device).float()
 
@@ -53,7 +53,7 @@ def validate(
     all_labels: list[np.ndarray] = []
 
     with torch.no_grad():
-        for inputs, labels in loader:
+        for inputs, labels, *_ in loader:
             inputs = inputs.to(device)
             labels = labels.to(device).float()
 
