@@ -24,25 +24,23 @@ def _sanitize_cache_key(filename: str) -> str:
     return filename.replace("/", "_")
 
 
-def _cache_paths(cache_dir: Path, cache_key: str) -> Tuple[Path, Path]:
-    return cache_dir / f"{cache_key}.npz", cache_dir / f"{cache_key}.npy"
+def _cache_paths(cache_dir: Path, cache_key: str) -> Path:
+    return cache_dir / f"{cache_key}.npz"
 
 
 def _load_cached_signal(cache_dir: Path, cache_key: str) -> Tuple[Optional[np.ndarray], Optional[dict]]:
-    npz_path, npy_path = _cache_paths(cache_dir, cache_key)
+    npz_path = _cache_paths(cache_dir, cache_key)
     if npz_path.exists():
         with np.load(npz_path, allow_pickle=True) as data:
             signal = data["signal"]
             fields = data["fields"].item() if "fields" in data.files else None
         return signal, fields
-    if npy_path.exists():
-        return np.load(npy_path, allow_pickle=True), None
     return None, None
 
 
 def _save_cached_signal(cache_dir: Path, cache_key: str, signal: np.ndarray, fields: Optional[dict]) -> None:
     cache_dir.mkdir(parents=True, exist_ok=True)
-    npz_path, _ = _cache_paths(cache_dir, cache_key)
+    npz_path = _cache_paths(cache_dir, cache_key)
     np.savez_compressed(npz_path, signal=signal, fields=fields)
 
 
@@ -58,7 +56,7 @@ def load_single_signal(
     Args:
         filename: Relative path from metadata (e.g., 'records100/00000/00001_lr')
         base_path: Base path to PTB-XL data directory
-        cache_dir: Optional cache directory for .npy/.npz signal storage
+        cache_dir: Optional cache directory for .npz signal storage
         use_cache: If True, read/write from cache when cache_dir is provided
         
     Returns:
@@ -113,7 +111,7 @@ def load_signals_batch(
         filename_column: Column containing relative file paths
         max_samples: Optional limit on number of samples to load
         progress: If True, print progress updates
-        cache_dir: Optional cache directory for .npy/.npz signal storage
+        cache_dir: Optional cache directory for .npz signal storage
         use_cache: If True, read/write from cache when cache_dir is provided
         
     Returns:
@@ -285,7 +283,7 @@ class SignalDataset:
             filename_column: Column with relative file paths
             label_column: Optional column with labels
             transform: Optional transform function applied to each signal
-            cache_dir: Optional cache directory for .npy/.npz signal storage
+        cache_dir: Optional cache directory for .npz signal storage
             use_cache: If True, read/write from cache when cache_dir is provided
         """
         self.df = df
@@ -321,22 +319,12 @@ class SignalDataset:
         row = self.df.loc[ecg_id]
 
         # Load signal (with optional cache)
-        signal = None
-        if self.cache_dir is not None:
-            cache_path = self._cache_path(ecg_id, row[self.filename_column])
-            if cache_path.exists():
-                signal = np.load(cache_path)
-        if signal is None:
-            signal, _ = load_single_signal(row[self.filename_column], self.base_path)
-            if self.cache_dir is not None:
-                np.save(cache_path, signal)
-        if self.use_cache and self.cache_dir is not None:
-            cache_key = self._cache_key(ecg_id, row[self.filename_column])
-            signal, _ = _load_cached_signal(self.cache_dir, cache_key)
-        if signal is None:
-            signal, _ = load_single_signal(row[self.filename_column], self.base_path)
-            if self.use_cache and self.cache_dir is not None:
-                _save_cached_signal(self.cache_dir, cache_key, signal, None)
+        signal, _ = load_single_signal(
+            row[self.filename_column],
+            self.base_path,
+            cache_dir=self.cache_dir,
+            use_cache=self.use_cache
+        )
         
         # Apply transform if specified
         if self.transform is not None:
@@ -353,14 +341,6 @@ class SignalDataset:
         """Iterate over all samples."""
         for idx in range(len(self)):
             yield self[idx]
-
-    def _cache_path(self, ecg_id: int, filename: str) -> Path:
-        safe_name = filename.replace("/", "_")
-        return self.cache_dir / f"{ecg_id}_{safe_name}.npy"
-    def _cache_key(self, ecg_id: int, filename: str) -> str:
-        safe_name = _sanitize_cache_key(filename)
-        return f"{ecg_id}_{safe_name}"
-
 
 # ============================================================================
 # Basic Preprocessing Functions
