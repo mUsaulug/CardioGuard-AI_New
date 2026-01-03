@@ -19,8 +19,7 @@ from src.data.labels import add_5class_labels, add_binary_mi_labels, filter_vali
 from src.data.loader import load_ptbxl_metadata, load_scp_statements
 from src.data.signals import (
     SignalDataset,
-    compute_channel_stats,
-    load_signals_batch,
+    compute_channel_stats_streaming,
     normalize_with_stats,
 )
 from src.data.splits import get_split_from_config, verify_no_patient_leakage
@@ -75,7 +74,8 @@ def _label_mapping_for_task(task: str) -> Dict[int, str]:
 
 def build_datasets(
     config: PTBXLConfig,
-    cache_dir: Optional[Path] = None
+    cache_dir: Optional[Path] = None,
+    stats_batch_size: int = 128,
 ) -> Tuple[Dict[str, SignalDataset], Dict[int, str], Tuple[np.ndarray, np.ndarray]]:
     """
     Build SignalDataset objects with train-derived normalization stats.
@@ -89,14 +89,14 @@ def build_datasets(
     val_df = df.loc[splits["val"]]
     test_df = df.loc[splits["test"]]
 
-    signals, _ = load_signals_batch(
+    mean, std = compute_channel_stats_streaming(
         train_df,
         base_path=config.records_path,
         filename_column=config.filename_column,
+        batch_size=stats_batch_size,
         progress=False,
         cache_dir=cache_dir,
     )
-    mean, std = compute_channel_stats(signals)
 
     def normalize(signal: np.ndarray) -> np.ndarray:
         return normalize_with_stats(signal, mean, std)

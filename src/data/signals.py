@@ -406,6 +406,93 @@ def compute_channel_stats(
     return mean, std
 
 
+def compute_channel_stats_streaming(
+    df: pd.DataFrame,
+    base_path: Union[str, Path],
+    filename_column: str = "filename_lr",
+    batch_size: int = 128,
+    max_samples: Optional[int] = None,
+    progress: bool = True,
+    cache_dir: Optional[Union[str, Path]] = None,
+    use_cache: bool = True,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Compute per-channel mean and std using mini-batch loading.
+
+    Args:
+        df: DataFrame with signal file paths
+        base_path: Base path to PTB-XL data directory
+        filename_column: Column containing relative file paths
+        batch_size: Number of signals to load per batch
+        max_samples: Optional limit on number of samples to process
+        progress: If True, print progress updates
+        cache_dir: Optional cache directory for .npz signal storage
+        use_cache: If True, read/write from cache when cache_dir is provided
+
+    Returns:
+        Tuple of (mean, std) arrays of shape (1, 1, n_channels)
+    """
+    if not WFDB_AVAILABLE:
+        raise ImportError("wfdb library required for signal loading")
+
+    if batch_size <= 0:
+        raise ValueError("batch_size must be a positive integer")
+
+    base_path = Path(base_path)
+    cache_dir_path = Path(cache_dir) if cache_dir is not None else None
+
+    if max_samples is not None:
+        df = df.head(max_samples)
+
+    total = len(df)
+    total_sum = None
+    total_sumsq = None
+    total_count = 0
+
+    for start in range(0, total, batch_size):
+        batch_df = df.iloc[start:start + batch_size]
+        if progress:
+            end = min(start + batch_size, total)
+            print(f"Computing stats: {end}/{total}")
+
+        signals, _ = load_signals_batch(
+            batch_df,
+            base_path=base_path,
+            filename_column=filename_column,
+            progress=False,
+            cache_dir=cache_dir_path,
+            use_cache=use_cache,
+        )
+
+        if signals.size == 0:
+            continue
+
+        batch_sum = signals.sum(axis=(0, 1))
+        batch_sumsq = np.square(signals).sum(axis=(0, 1))
+        batch_count = signals.shape[0] * signals.shape[1]
+
+        if total_sum is None:
+            total_sum = batch_sum
+            total_sumsq = batch_sumsq
+        else:
+            total_sum += batch_sum
+            total_sumsq += batch_sumsq
+
+        total_count += batch_count
+
+    if total_count == 0 or total_sum is None or total_sumsq is None:
+        raise ValueError("No signals were loaded to compute channel stats.")
+
+    mean = total_sum / total_count
+    var = total_sumsq / total_count - np.square(mean)
+    std = np.sqrt(np.maximum(var, 0.0))
+    std = np.where(std == 0, 1, std)
+
+    mean = mean.reshape(1, 1, -1)
+    std = std.reshape(1, 1, -1)
+    return mean, std
+
+
 def normalize_with_stats(
     signal: np.ndarray,
     mean: np.ndarray,
