@@ -51,6 +51,7 @@ def prepare_splits(config: PTBXLConfig) -> Tuple[pd.DataFrame, Dict[str, np.ndar
         raise ValueError(f"Unsupported task type: {config.task}")
 
     df = filter_valid_samples(df, label_column=label_column)
+    df = _filter_existing_records(df, config.data_root, config.filename_column)
 
     train_indices, val_indices, test_indices = get_split_from_config(df, config)
     verify_no_patient_leakage(df, train_indices, val_indices, test_indices)
@@ -62,6 +63,49 @@ def prepare_splits(config: PTBXLConfig) -> Tuple[pd.DataFrame, Dict[str, np.ndar
     }
 
     return df, splits, label_column
+
+
+def _filter_existing_records(
+    df: pd.DataFrame,
+    base_path: Path,
+    filename_column: str,
+    expected_channels: int = 12,
+) -> pd.DataFrame:
+    base_path = Path(base_path)
+    missing_count = 0
+    channel_mismatch = 0
+    keep_mask: list[bool] = []
+
+    for filename in df[filename_column]:
+        record_path = base_path / filename
+        hea_path = record_path.with_suffix(".hea")
+        dat_path = record_path.with_suffix(".dat")
+        if not hea_path.exists() or not dat_path.exists():
+            missing_count += 1
+            keep_mask.append(False)
+            continue
+
+        try:
+            with hea_path.open("r", encoding="utf-8", errors="ignore") as handle:
+                header_line = handle.readline().strip()
+            parts = header_line.split()
+            n_sig = int(parts[1]) if len(parts) > 1 else None
+        except (OSError, ValueError):
+            n_sig = None
+
+        if n_sig != expected_channels:
+            channel_mismatch += 1
+            keep_mask.append(False)
+            continue
+
+        keep_mask.append(True)
+
+    if missing_count:
+        print(f"Skipping {missing_count} records with missing .hea/.dat files.")
+    if channel_mismatch:
+        print(f"Skipping {channel_mismatch} records with unexpected lead counts.")
+
+    return df.loc[df.index[keep_mask]].copy()
 
 
 def _label_mapping_for_task(task: str) -> Dict[int, str]:
@@ -91,7 +135,7 @@ def build_datasets(
 
     mean, std = compute_channel_stats_streaming(
         train_df,
-        base_path=config.records_path,
+        base_path=config.data_root,
         filename_column=config.filename_column,
         batch_size=stats_batch_size,
         progress=False,
@@ -104,7 +148,7 @@ def build_datasets(
     datasets = {
         "train": SignalDataset(
             train_df,
-            config.records_path,
+            config.data_root,
             filename_column=config.filename_column,
             label_column=label_column,
             transform=normalize,
@@ -112,7 +156,7 @@ def build_datasets(
         ),
         "val": SignalDataset(
             val_df,
-            config.records_path,
+            config.data_root,
             filename_column=config.filename_column,
             label_column=label_column,
             transform=normalize,
@@ -120,7 +164,7 @@ def build_datasets(
         ),
         "test": SignalDataset(
             test_df,
-            config.records_path,
+            config.data_root,
             filename_column=config.filename_column,
             label_column=label_column,
             transform=normalize,

@@ -45,7 +45,7 @@ def build_datasets(
 
     mean, std = compute_channel_stats_streaming(
         train_df,
-        base_path=config.records_path,
+        base_path=config.data_root,
         filename_column=config.filename_column,
         batch_size=stats_batch_size,
         progress=False,
@@ -58,21 +58,21 @@ def build_datasets(
     datasets = {
         "train": SignalDataset(
             train_df,
-            config.records_path,
+            config.data_root,
             filename_column=config.filename_column,
             label_column=label_column,
             transform=normalize,
         ),
         "val": SignalDataset(
             val_df,
-            config.records_path,
+            config.data_root,
             filename_column=config.filename_column,
             label_column=label_column,
             transform=normalize,
         ),
         "test": SignalDataset(
             test_df,
-            config.records_path,
+            config.data_root,
             filename_column=config.filename_column,
             label_column=label_column,
             transform=normalize,
@@ -163,9 +163,26 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--stats-batch-size", type=int, default=128)
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=None,
+        help="Override PTB-XL root directory (defaults to ./physionet.org/files/ptb-xl/1.0.3).",
+    )
+    parser.add_argument(
+        "--sampling-rate",
+        type=int,
+        choices=[100, 500],
+        default=None,
+        help="Override sampling rate for records100/records500.",
+    )
     args = parser.parse_args()
 
     config = get_default_config()
+    if args.data_root is not None:
+        config.data_root = args.data_root
+    if args.sampling_rate is not None:
+        config.sampling_rate = args.sampling_rate
     config.task = args.task
 
     if args.strategy != "cnn":
