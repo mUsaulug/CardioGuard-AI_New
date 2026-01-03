@@ -354,9 +354,8 @@ def main() -> None:
 
     # 4. Ensemble with Optimized Alpha (validation)
     print("\nOptimizing ensemble weight α (validation)...")
-    metric_name = "roc_auc"
     best_alpha, best_score, alpha_scores = optimize_ensemble_weight(
-        y_val, cnn_probs_val, xgb_probs_val, metric=metric_name
+        y_val, cnn_probs_val, xgb_probs_val, metric="roc_auc"
     )
     print(f"Best α = {best_alpha:.2f} (AUC = {best_score:.4f})")
     config_path = _save_ensemble_config(
