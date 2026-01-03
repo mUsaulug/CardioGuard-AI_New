@@ -15,7 +15,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from src.config import PTBXLConfig, get_default_config
-from src.data.signals import SignalDataset, compute_channel_stats, load_signals_batch, normalize_with_stats
+from src.data.signals import SignalDataset, compute_channel_stats_streaming, normalize_with_stats
 from src.models.cnn import ECGCNN, ECGCNNConfig
 from src.models.trainer import train_one_epoch, validate
 from src.pipeline.data_pipeline import prepare_splits
@@ -37,18 +37,19 @@ def build_datasets(
     df,
     splits: Dict[str, np.ndarray],
     label_column: str,
+    stats_batch_size: int = 128,
 ) -> Dict[str, ECGDatasetTorch]:
     train_df = df.loc[splits["train"]]
     val_df = df.loc[splits["val"]]
     test_df = df.loc[splits["test"]]
 
-    signals, _ = load_signals_batch(
+    mean, std = compute_channel_stats_streaming(
         train_df,
         base_path=config.records_path,
         filename_column=config.filename_column,
+        batch_size=stats_batch_size,
         progress=False,
     )
-    mean, std = compute_channel_stats(signals)
 
     def normalize(signal: np.ndarray) -> np.ndarray:
         normalized = normalize_with_stats(signal, mean, std)
@@ -161,6 +162,7 @@ def main() -> None:
     parser.add_argument("--strategy", default="cnn")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--stats-batch-size", type=int, default=128)
     args = parser.parse_args()
 
     config = get_default_config()
@@ -174,7 +176,13 @@ def main() -> None:
     set_random_seed(config.random_seed)
 
     df, splits, label_column = prepare_splits(config)
-    datasets = build_datasets(config, df, splits, label_column)
+    datasets = build_datasets(
+        config,
+        df,
+        splits,
+        label_column,
+        stats_batch_size=args.stats_batch_size,
+    )
 
     loaders = {
         split: DataLoader(dataset, batch_size=args.batch_size, shuffle=(split == "train"))
