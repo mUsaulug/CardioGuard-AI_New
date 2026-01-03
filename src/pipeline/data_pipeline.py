@@ -12,6 +12,7 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 import torch
+import wfdb
 from torch.utils.data import Dataset
 
 from src.config import DIAGNOSTIC_SUPERCLASSES, PTBXLConfig
@@ -51,7 +52,12 @@ def prepare_splits(config: PTBXLConfig) -> Tuple[pd.DataFrame, Dict[str, np.ndar
         raise ValueError(f"Unsupported task type: {config.task}")
 
     df = filter_valid_samples(df, label_column=label_column)
-    df = _filter_existing_records(df, config.data_root, config.filename_column)
+    df = _filter_existing_records(
+        df,
+        config.data_root,
+        config.filename_column,
+        expected_channels=12,
+    )
 
     train_indices, val_indices, test_indices = get_split_from_config(df, config)
     verify_no_patient_leakage(df, train_indices, val_indices, test_indices)
@@ -69,6 +75,7 @@ def _filter_existing_records(
     df: pd.DataFrame,
     base_path: Path,
     filename_column: str,
+    expected_channels: int,
 ) -> pd.DataFrame:
     base_path = Path(base_path)
 
@@ -80,7 +87,34 @@ def _filter_existing_records(
     missing_count = int((~mask).sum())
     if missing_count:
         print(f"Skipping {missing_count} records with missing .hea/.dat files.")
-    return df[mask].copy()
+    filtered = df[mask].copy()
+
+    channel_mismatch = 0
+    header_errors = 0
+    keep_mask = []
+    for filename in filtered[filename_column]:
+        record_path = base_path / filename
+        try:
+            header = wfdb.rdheader(str(record_path))
+        except Exception as exc:
+            header_errors += 1
+            print(f"Skipping {filename}: header read failed ({exc})")
+            keep_mask.append(False)
+            continue
+
+        n_sig = getattr(header, "n_sig", None)
+        if n_sig != expected_channels:
+            channel_mismatch += 1
+            keep_mask.append(False)
+            continue
+        keep_mask.append(True)
+
+    if header_errors:
+        print(f"Skipping {header_errors} records with unreadable headers.")
+    if channel_mismatch:
+        print(f"Skipping {channel_mismatch} records with unexpected lead counts.")
+
+    return filtered[keep_mask].copy()
 
 
 def _label_mapping_for_task(task: str) -> Dict[int, str]:
@@ -115,6 +149,7 @@ def build_datasets(
         batch_size=stats_batch_size,
         progress=False,
         cache_dir=cache_dir,
+        expected_channels=12,
     )
 
     def normalize(signal: np.ndarray) -> np.ndarray:
@@ -128,6 +163,7 @@ def build_datasets(
             label_column=label_column,
             transform=normalize,
             cache_dir=cache_dir,
+            expected_channels=12,
         ),
         "val": SignalDataset(
             val_df,
@@ -136,6 +172,7 @@ def build_datasets(
             label_column=label_column,
             transform=normalize,
             cache_dir=cache_dir,
+            expected_channels=12,
         ),
         "test": SignalDataset(
             test_df,
@@ -144,6 +181,7 @@ def build_datasets(
             label_column=label_column,
             transform=normalize,
             cache_dir=cache_dir,
+            expected_channels=12,
         ),
     }
 

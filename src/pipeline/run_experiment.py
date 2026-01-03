@@ -49,6 +49,7 @@ def build_datasets(
         filename_column=config.filename_column,
         batch_size=stats_batch_size,
         progress=False,
+        expected_channels=12,
     )
 
     def normalize(signal: np.ndarray) -> np.ndarray:
@@ -62,6 +63,7 @@ def build_datasets(
             filename_column=config.filename_column,
             label_column=label_column,
             transform=normalize,
+            expected_channels=12,
         ),
         "val": SignalDataset(
             val_df,
@@ -69,6 +71,7 @@ def build_datasets(
             filename_column=config.filename_column,
             label_column=label_column,
             transform=normalize,
+            expected_channels=12,
         ),
         "test": SignalDataset(
             test_df,
@@ -76,6 +79,7 @@ def build_datasets(
             filename_column=config.filename_column,
             label_column=label_column,
             transform=normalize,
+            expected_channels=12,
         ),
     }
 

@@ -97,7 +97,8 @@ def load_signals_batch(
     max_samples: Optional[int] = None,
     progress: bool = True,
     cache_dir: Optional[Union[str, Path]] = None,
-    use_cache: bool = True
+    use_cache: bool = True,
+    expected_channels: Optional[int] = None,
 ) -> Tuple[np.ndarray, List[int]]:
     """
     Load multiple ECG signals into a single array.
@@ -113,6 +114,7 @@ def load_signals_batch(
         progress: If True, print progress updates
         cache_dir: Optional cache directory for .npz signal storage
         use_cache: If True, read/write from cache when cache_dir is provided
+        expected_channels: Optional channel count to validate before stacking
         
     Returns:
         Tuple of (signals_array, ecg_ids)
@@ -144,6 +146,12 @@ def load_signals_batch(
                 cache_dir=cache_dir_path,
                 use_cache=use_cache
             )
+            if expected_channels is not None:
+                if signal.ndim != 2 or signal.shape[1] != expected_channels:
+                    print(
+                        f"Skipping ecg_id={ecg_id}: unexpected signal shape {signal.shape}"
+                    )
+                    continue
             signals.append(signal)
             ecg_ids.append(ecg_id)
         except Exception as e:
@@ -272,7 +280,8 @@ class SignalDataset:
         label_column: Optional[str] = None,
         transform: Optional[callable] = None,
         cache_dir: Optional[Union[str, Path]] = None,
-        use_cache: bool = True
+        use_cache: bool = True,
+        expected_channels: Optional[int] = None,
     ):
         """
         Initialize the signal dataset.
@@ -285,6 +294,7 @@ class SignalDataset:
             transform: Optional transform function applied to each signal
         cache_dir: Optional cache directory for .npz signal storage
             use_cache: If True, read/write from cache when cache_dir is provided
+            expected_channels: Optional channel count to validate before transforms
         """
         self.df = df
         self.base_path = Path(base_path)
@@ -293,11 +303,13 @@ class SignalDataset:
         self.transform = transform
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.use_cache = use_cache
+        self.expected_channels = expected_channels
         if self.use_cache and self.cache_dir is not None:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Store index for iteration
         self._indices = list(df.index)
+        self._invalid_ecg_ids: set[int] = set()
     
     def __len__(self) -> int:
         return len(self._indices)
@@ -315,27 +327,59 @@ class SignalDataset:
             - label: label value if label_column specified, else None
             - ecg_id: original ecg_id from the DataFrame index
         """
-        ecg_id = self._indices[idx]
-        row = self.df.loc[ecg_id]
+        attempts = 0
+        total = len(self._indices)
 
-        # Load signal (with optional cache)
-        signal, _ = load_single_signal(
-            row[self.filename_column],
-            self.base_path,
-            cache_dir=self.cache_dir,
-            use_cache=self.use_cache
-        )
-        
-        # Apply transform if specified
-        if self.transform is not None:
-            signal = self.transform(signal)
-        
-        # Get label if specified
-        label = None
-        if self.label_column is not None:
-            label = row[self.label_column]
-        
-        return signal, label, ecg_id
+        while attempts < total:
+            ecg_id = self._indices[idx]
+            if ecg_id in self._invalid_ecg_ids:
+                attempts += 1
+                idx = (idx + 1) % total
+                continue
+
+            row = self.df.loc[ecg_id]
+
+            try:
+                signal, _ = load_single_signal(
+                    row[self.filename_column],
+                    self.base_path,
+                    cache_dir=self.cache_dir,
+                    use_cache=self.use_cache,
+                )
+            except Exception as exc:
+                print(f"Skipping ecg_id={ecg_id}: load error ({exc})")
+                self._invalid_ecg_ids.add(ecg_id)
+                attempts += 1
+                idx = (idx + 1) % total
+                continue
+
+            if self.expected_channels is not None:
+                if signal.ndim != 2 or signal.shape[1] != self.expected_channels:
+                    print(
+                        f"Skipping ecg_id={ecg_id}: unexpected signal shape {signal.shape}"
+                    )
+                    self._invalid_ecg_ids.add(ecg_id)
+                    attempts += 1
+                    idx = (idx + 1) % total
+                    continue
+
+            if self.transform is not None:
+                try:
+                    signal = self.transform(signal)
+                except Exception as exc:
+                    print(f"Skipping ecg_id={ecg_id}: transform error ({exc})")
+                    self._invalid_ecg_ids.add(ecg_id)
+                    attempts += 1
+                    idx = (idx + 1) % total
+                    continue
+
+            label = None
+            if self.label_column is not None:
+                label = row[self.label_column]
+
+            return signal, label, ecg_id
+
+        raise RuntimeError("No valid ECG signals found after filtering invalid records.")
     
     def __iter__(self) -> Iterator[Tuple[np.ndarray, Optional[int], int]]:
         """Iterate over all samples."""
@@ -415,6 +459,7 @@ def compute_channel_stats_streaming(
     progress: bool = True,
     cache_dir: Optional[Union[str, Path]] = None,
     use_cache: bool = True,
+    expected_channels: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Compute per-channel mean and std using mini-batch loading.
@@ -428,6 +473,7 @@ def compute_channel_stats_streaming(
         progress: If True, print progress updates
         cache_dir: Optional cache directory for .npz signal storage
         use_cache: If True, read/write from cache when cache_dir is provided
+        expected_channels: Optional channel count to validate before stacking
 
     Returns:
         Tuple of (mean, std) arrays of shape (1, 1, n_channels)
@@ -462,6 +508,7 @@ def compute_channel_stats_streaming(
             progress=False,
             cache_dir=cache_dir_path,
             use_cache=use_cache,
+            expected_channels=expected_channels,
         )
 
         if signals.size == 0:
