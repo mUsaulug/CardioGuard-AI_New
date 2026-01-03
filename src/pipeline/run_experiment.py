@@ -45,7 +45,7 @@ def build_datasets(
 
     mean, std = compute_channel_stats_streaming(
         train_df,
-        base_path=config.records_path,
+        base_path=config.data_root,
         filename_column=config.filename_column,
         batch_size=stats_batch_size,
         progress=False,
@@ -58,21 +58,21 @@ def build_datasets(
     datasets = {
         "train": SignalDataset(
             train_df,
-            config.records_path,
+            config.data_root,
             filename_column=config.filename_column,
             label_column=label_column,
             transform=normalize,
         ),
         "val": SignalDataset(
             val_df,
-            config.records_path,
+            config.data_root,
             filename_column=config.filename_column,
             label_column=label_column,
             transform=normalize,
         ),
         "test": SignalDataset(
             test_df,
-            config.records_path,
+            config.data_root,
             filename_column=config.filename_column,
             label_column=label_column,
             transform=normalize,
