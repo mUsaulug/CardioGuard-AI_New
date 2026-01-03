@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Union
 
 import numpy as np
 from sklearn.metrics import accuracy_score, average_precision_score, classification_report, roc_auc_score
-from xgboost import XGBClassifier
+from xgboost import Booster, DMatrix, XGBClassifier
 
 
 @dataclass
@@ -24,14 +24,22 @@ class XGBConfig:
     random_state: int = 42
 
 
+def _predict_booster_proba(model: Booster, features: np.ndarray) -> np.ndarray:
+    dmatrix = DMatrix(features)
+    proba = model.predict(dmatrix)
+    return np.asarray(proba)
+
+
 def predict_xgb(
-    model: XGBClassifier,
+    model: Union[XGBClassifier, Booster],
     features: np.ndarray,
     threshold: float = 0.5,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Predict probabilities and binary labels with an XGBoost model."""
-
-    proba = model.predict_proba(features)[:, 1]
+    if isinstance(model, Booster):
+        proba = _predict_booster_proba(model, features)
+    else:
+        proba = model.predict_proba(features)[:, 1]
     preds = (proba >= threshold).astype(int)
     return proba, preds
 
@@ -84,8 +92,13 @@ def save_xgb(model: XGBClassifier, path: str | Path) -> None:
     model.save_model(path)
 
 
-def load_xgb(path: str | Path) -> XGBClassifier:
+def load_xgb(path: str | Path) -> Union[XGBClassifier, Booster]:
     """Load XGBoost model from JSON."""
     model = XGBClassifier()
-    model.load_model(path)
-    return model
+    try:
+        model.load_model(path)
+        return model
+    except TypeError:
+        booster = Booster()
+        booster.load_model(path)
+        return booster
