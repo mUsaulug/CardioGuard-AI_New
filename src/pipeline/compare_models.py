@@ -193,6 +193,26 @@ def _format_metrics(name: str, metrics: Dict[str, float]) -> Dict[str, object]:
     }
 
 
+def _save_ensemble_config(
+    output_dir: Path,
+    best_alpha: float,
+    best_score: float,
+    metric: str,
+    alpha_scores: Dict[str, float],
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "best_alpha": float(best_alpha),
+        "best_score": float(best_score),
+        "metric": metric,
+        "alpha_scores": alpha_scores,
+    }
+    config_path = output_dir / "ensemble_config.json"
+    with config_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+    return config_path
+
+
 def compare_from_metrics(
     cnn_metrics_path: Path,
     xgb_metrics_path: Path,
@@ -338,6 +358,14 @@ def main() -> None:
         y_val, cnn_probs_val, xgb_probs_val, metric="roc_auc"
     )
     print(f"Best α = {best_alpha:.2f} (AUC = {best_score:.4f})")
+    config_path = _save_ensemble_config(
+        args.output_dir,
+        best_alpha,
+        best_score,
+        metric_name,
+        alpha_scores,
+    )
+    print(f"Saved ensemble config to {config_path}")
     
     # Compute ensemble with optimal α on test
     ensemble_probs_opt = best_alpha * cnn_probs_test + (1 - best_alpha) * xgb_probs_test
