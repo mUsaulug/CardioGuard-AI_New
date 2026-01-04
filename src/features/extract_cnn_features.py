@@ -46,11 +46,16 @@ def extract_cnn_features(
 
     feature_array = np.concatenate(list(features), axis=0)
     label_array = np.concatenate(labels, axis=0) if labels else None
+    if label_array is not None:
+        label_array = np.asarray(label_array).reshape(-1)
     ids_array = np.array(ids) if ids else None
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    savez_payload = {"features": feature_array}
+    savez_payload = {"X": feature_array}
+    # Backward-compatible keys
+    savez_payload["features"] = feature_array
     if label_array is not None:
+        savez_payload["y"] = label_array
         savez_payload["labels"] = label_array
     if ids_array is not None:
         savez_payload["ids"] = ids_array
