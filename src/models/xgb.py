@@ -16,6 +16,9 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score,
 )
+import inspect
+import warnings
+
 from xgboost import Booster, DMatrix, XGBClassifier
 from xgboost.callback import EarlyStopping
 
@@ -138,16 +141,19 @@ def train_xgb(
         "eval_set": [(X_val, y_val)],
         "verbose": False,
     }
-    if config.early_stopping_rounds:
+    fit_params = set(inspect.signature(model.fit).parameters)
+    if "eval_set" not in fit_params:
+        fit_kwargs.pop("eval_set", None)
+    if "verbose" not in fit_params:
+        fit_kwargs.pop("verbose", None)
+    if "early_stopping_rounds" in fit_params and config.early_stopping_rounds:
         fit_kwargs["early_stopping_rounds"] = config.early_stopping_rounds
-    try:
-        model.fit(**fit_kwargs)
-    except TypeError:
-        fit_kwargs.pop("early_stopping_rounds", None)
-        callbacks = []
-        if config.early_stopping_rounds:
-            callbacks.append(EarlyStopping(rounds=config.early_stopping_rounds, save_best=True))
-        model.fit(**fit_kwargs, callbacks=callbacks)
+    elif config.early_stopping_rounds:
+        warnings.warn(
+            "XGBClassifier.fit does not support early_stopping_rounds; continuing without early stopping.",
+            RuntimeWarning,
+        )
+    model.fit(**fit_kwargs)
     val_proba, _ = predict_xgb(model, X_val)
     metrics = compute_binary_metrics(y_val, val_proba)
     metrics["best_iteration"] = int(getattr(model, "best_iteration", -1))
