@@ -22,6 +22,7 @@ import inspect
 import warnings
 
 from xgboost import Booster, DMatrix, XGBClassifier
+from xgboost.callback import EarlyStopping
 
 
 @dataclass
@@ -134,6 +135,7 @@ def calibrate_xgb(
         lr = LogisticRegression(solver="lbfgs")
         lr.fit(base_proba.reshape(-1, 1), labels)
         return ManualCalibratedModel(model, lr)
+
 
 
 def train_xgb(
