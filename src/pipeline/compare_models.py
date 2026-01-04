@@ -217,6 +217,18 @@ def _save_ensemble_config(
     return config_path
 
 
+def _load_best_threshold(metrics_path: Path) -> float:
+    if not metrics_path.exists():
+        return 0.5
+    payload = _load_json(metrics_path)
+    val_payload = payload.get("val", {})
+    threshold = val_payload.get("best_threshold", 0.5)
+    try:
+        return float(threshold)
+    except (TypeError, ValueError):
+        return 0.5
+
+
 def compare_from_metrics(
     cnn_metrics_path: Path,
     xgb_metrics_path: Path,
@@ -370,6 +382,10 @@ def main() -> None:
         sys.exit(1)
         
     xgb_model = load_xgb(args.xgb_path)
+    calibrated_path = args.xgb_path.parent / "xgb_calibrated.joblib"
+    if calibrated_path.exists():
+        xgb_model = joblib.load(calibrated_path)
+        print(f"Loaded calibrated XGBoost model from {calibrated_path}")
     scaler_path = args.xgb_path.parent / "xgb_scaler.joblib"
     scaler = None
     if scaler_path.exists():
@@ -411,9 +427,10 @@ def main() -> None:
     # 5. Metrics
     print("\nCalculating metrics...")
     from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, f1_score
+    xgb_threshold = _load_best_threshold(args.xgb_metrics)
     
-    def calc_metrics(y_t, y_p, name):
-        y_pred = (y_p >= 0.5).astype(int)
+    def calc_metrics(y_t, y_p, name, threshold=0.5):
+        y_pred = (y_p >= threshold).astype(int)
         return {
             "Model": name,
             "AUC": roc_auc_score(y_t, y_p),
@@ -424,7 +441,7 @@ def main() -> None:
 
     results = []
     results.append(calc_metrics(y_test, cnn_probs_test, "CNN"))
-    results.append(calc_metrics(y_test, xgb_probs_test, "XGBoost"))
+    results.append(calc_metrics(y_test, xgb_probs_test, "XGBoost", threshold=xgb_threshold))
     results.append(calc_metrics(y_test, ensemble_probs_avg, "Ensemble (α=0.5)"))
     results.append(calc_metrics(y_test, ensemble_probs_opt, f"Ensemble (α={best_alpha:.2f})"))
     

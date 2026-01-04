@@ -16,6 +16,7 @@ import joblib
 
 from src.models.xgb import (
     XGBConfig,
+    calibrate_xgb,
     compute_binary_metrics,
     find_best_threshold,
     predict_xgb,
@@ -48,9 +49,10 @@ def evaluate_split(
     model,
     features: np.ndarray,
     labels: np.ndarray,
+    threshold: float,
 ) -> Dict[str, object]:
     proba, _ = predict_xgb(model, features)
-    metrics = compute_binary_metrics(labels, proba)
+    metrics = compute_binary_metrics(labels, proba, threshold=threshold)
     return {"split": name, "metrics": metrics}
 
 
@@ -64,6 +66,12 @@ def main() -> None:
         "--no-scale-features",
         action="store_true",
         help="Disable StandardScaler normalization for CNN embeddings.",
+    )
+    parser.add_argument(
+        "--calibration",
+        choices=["sigmoid", "isotonic"],
+        default=None,
+        help="Optional probability calibration method (uses validation set).",
     )
     args = parser.parse_args()
 
@@ -79,13 +87,36 @@ def main() -> None:
         X_test = scaler.transform(X_test)
 
     model, val_metrics = train_xgb(X_train, y_train, X_val, y_val, XGBConfig())
-    val_proba, _ = predict_xgb(model, X_val)
+    calibrated_model = None
+    model_for_eval = model
+    if args.calibration is not None:
+        calibrated_model = calibrate_xgb(model, X_val, y_val, method=args.calibration)
+        model_for_eval = calibrated_model
+
+    val_proba, _ = predict_xgb(model_for_eval, X_val)
     best_threshold, best_threshold_f1 = find_best_threshold(y_val, val_proba)
 
     results = {
-        "val": {**val_metrics, "best_threshold": best_threshold, "best_threshold_f1": best_threshold_f1},
-        "train": evaluate_split("train", model, X_train, y_train)["metrics"],
-        "test": evaluate_split("test", model, X_test, y_test)["metrics"],
+        "val": {
+            **val_metrics,
+            "best_threshold": best_threshold,
+            "best_threshold_f1": best_threshold_f1,
+            "calibration_method": args.calibration,
+        },
+        "train": evaluate_split(
+            "train",
+            model_for_eval,
+            X_train,
+            y_train,
+            threshold=best_threshold,
+        )["metrics"],
+        "test": evaluate_split(
+            "test",
+            model_for_eval,
+            X_test,
+            y_test,
+            threshold=best_threshold,
+        )["metrics"],
     }
 
     output_dir = Path(args.output_dir)
@@ -96,6 +127,10 @@ def main() -> None:
 
     model_path = output_dir / "xgb_model.json"
     model.save_model(model_path)
+    if calibrated_model is not None:
+        calibrated_path = output_dir / "xgb_calibrated.joblib"
+        joblib.dump(calibrated_model, calibrated_path)
+        print(f"Saved calibrated XGBoost model to: {calibrated_path}")
     if scaler is not None:
         scaler_path = output_dir / "xgb_scaler.joblib"
         joblib.dump(scaler, scaler_path)

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Tuple, Union
 
 import numpy as np
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import accuracy_score, average_precision_score, classification_report, f1_score, roc_auc_score
 from xgboost import Booster, DMatrix, XGBClassifier
 
@@ -33,7 +35,7 @@ def _predict_booster_proba(model: Booster, features: np.ndarray) -> np.ndarray:
 
 
 def predict_xgb(
-    model: Union[XGBClassifier, Booster],
+    model: Union[XGBClassifier, Booster, CalibratedClassifierCV],
     features: np.ndarray,
     threshold: float = 0.5,
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -78,6 +80,19 @@ def find_best_threshold(
             best_score = score
             best_threshold = float(threshold)
     return best_threshold, float(best_score)
+
+
+def calibrate_xgb(
+    model: XGBClassifier,
+    features: np.ndarray,
+    labels: np.ndarray,
+    method: str = "sigmoid",
+) -> CalibratedClassifierCV:
+    """Calibrate XGBoost probabilities using a validation split."""
+
+    calibrator = CalibratedClassifierCV(model, method=method, cv="prefit")
+    calibrator.fit(features, labels)
+    return calibrator
 
 def train_xgb(
     X_train: np.ndarray,
