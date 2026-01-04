@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Tuple, Union
 
 import numpy as np
-from sklearn.metrics import accuracy_score, average_precision_score, classification_report, roc_auc_score
+from sklearn.metrics import accuracy_score, average_precision_score, classification_report, f1_score, roc_auc_score
 from xgboost import Booster, DMatrix, XGBClassifier
 
 
@@ -24,12 +24,6 @@ class XGBConfig:
     random_state: int = 42
     early_stopping_rounds: int = 30
     scale_pos_weight: float | None = None
-
-
-def _predict_booster_proba(model: Booster, features: np.ndarray) -> np.ndarray:
-    dmatrix = DMatrix(features)
-    proba = model.predict(dmatrix)
-    return np.asarray(proba)
 
 
 def _predict_booster_proba(model: Booster, features: np.ndarray) -> np.ndarray:
@@ -67,6 +61,23 @@ def compute_binary_metrics(
         "report": classification_report(y_true, preds, output_dict=True),
     }
 
+
+def find_best_threshold(
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    thresholds: np.ndarray | None = None,
+) -> Tuple[float, float]:
+    if thresholds is None:
+        thresholds = np.linspace(0.05, 0.95, 19)
+    best_threshold = 0.5
+    best_score = -1.0
+    for threshold in thresholds:
+        preds = (y_proba >= threshold).astype(int)
+        score = f1_score(y_true, preds)
+        if score > best_score:
+            best_score = score
+            best_threshold = float(threshold)
+    return best_threshold, float(best_score)
 
 def train_xgb(
     X_train: np.ndarray,

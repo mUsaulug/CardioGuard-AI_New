@@ -20,6 +20,7 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+import joblib
 
 from src.config import get_default_config
 from src.data.loader import load_ptbxl_metadata
@@ -369,12 +370,20 @@ def main() -> None:
         sys.exit(1)
         
     xgb_model = load_xgb(args.xgb_path)
+    scaler_path = args.xgb_path.parent / "xgb_scaler.joblib"
+    scaler = None
+    if scaler_path.exists():
+        scaler = joblib.load(scaler_path)
+        print(f"Loaded XGBoost scaler from {scaler_path}")
     
     print("Extracting features for XGB...")
     xgb_features_val = get_cnn_embeddings(cnn_model, val_loader, args.device)
     xgb_features_test = get_cnn_embeddings(cnn_model, test_loader, args.device)
 
     print("Running XGB inference...")
+    if scaler is not None:
+        xgb_features_val = scaler.transform(xgb_features_val)
+        xgb_features_test = scaler.transform(xgb_features_test)
     xgb_probs_val, _ = predict_xgb(xgb_model, xgb_features_val)
     xgb_probs_test, _ = predict_xgb(xgb_model, xgb_features_test)
 

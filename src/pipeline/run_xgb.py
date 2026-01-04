@@ -11,8 +11,16 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 import numpy as np
+from sklearn.preprocessing import StandardScaler
+import joblib
 
-from src.models.xgb import XGBConfig, compute_binary_metrics, predict_xgb, train_xgb
+from src.models.xgb import (
+    XGBConfig,
+    compute_binary_metrics,
+    find_best_threshold,
+    predict_xgb,
+    train_xgb,
+)
 
 
 def load_features(path: str | Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray | None]:
@@ -52,16 +60,30 @@ def main() -> None:
     parser.add_argument("--val", required=True, help="Path to val .npz features")
     parser.add_argument("--test", required=True, help="Path to test .npz features")
     parser.add_argument("--output-dir", default="logs/xgb", help="Directory for metrics.json")
+    parser.add_argument(
+        "--no-scale-features",
+        action="store_true",
+        help="Disable StandardScaler normalization for CNN embeddings.",
+    )
     args = parser.parse_args()
 
     X_train, y_train, _ = load_features(args.train)
     X_val, y_val, _ = load_features(args.val)
     X_test, y_test, _ = load_features(args.test)
 
+    scaler = None
+    if not args.no_scale_features:
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train)
+        X_val = scaler.transform(X_val)
+        X_test = scaler.transform(X_test)
+
     model, val_metrics = train_xgb(X_train, y_train, X_val, y_val, XGBConfig())
+    val_proba, _ = predict_xgb(model, X_val)
+    best_threshold, best_threshold_f1 = find_best_threshold(y_val, val_proba)
 
     results = {
-        "val": val_metrics,
+        "val": {**val_metrics, "best_threshold": best_threshold, "best_threshold_f1": best_threshold_f1},
         "train": evaluate_split("train", model, X_train, y_train)["metrics"],
         "test": evaluate_split("test", model, X_test, y_test)["metrics"],
     }
@@ -74,6 +96,10 @@ def main() -> None:
 
     model_path = output_dir / "xgb_model.json"
     model.save_model(model_path)
+    if scaler is not None:
+        scaler_path = output_dir / "xgb_scaler.joblib"
+        joblib.dump(scaler, scaler_path)
+        print(f"Saved XGBoost scaler to: {scaler_path}")
 
     print(json.dumps(results, indent=2))
     print(f"Saved XGBoost model to: {model_path}")
