@@ -9,6 +9,7 @@ from src.xai.shap_xgb import (
 )
 from src.xai.visualize import (
     LEAD_NAMES,
+    plot_ecg_with_localization,
     plot_ecg_with_prediction,
     plot_gradcam_heatmap,
     plot_lead_attention,
@@ -26,6 +27,7 @@ __all__ = [
     "plot_shap_summary",
     "plot_shap_waterfall",
     "LEAD_NAMES",
+    "plot_ecg_with_localization",
     "plot_ecg_with_prediction",
     "plot_gradcam_heatmap",
     "plot_lead_attention",

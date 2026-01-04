@@ -278,6 +278,7 @@ class SignalDataset:
         base_path: Union[str, Path],
         filename_column: str = "filename_lr",
         label_column: Optional[str] = None,
+        localization_column: Optional[str] = None,
         transform: Optional[callable] = None,
         cache_dir: Optional[Union[str, Path]] = None,
         use_cache: bool = True,
@@ -291,6 +292,7 @@ class SignalDataset:
             base_path: Base path to PTB-XL data
             filename_column: Column with relative file paths
             label_column: Optional column with labels
+            localization_column: Optional column with localization targets
             transform: Optional transform function applied to each signal
         cache_dir: Optional cache directory for .npz signal storage
             use_cache: If True, read/write from cache when cache_dir is provided
@@ -300,6 +302,7 @@ class SignalDataset:
         self.base_path = Path(base_path)
         self.filename_column = filename_column
         self.label_column = label_column
+        self.localization_column = localization_column
         self.transform = transform
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.use_cache = use_cache
@@ -314,7 +317,7 @@ class SignalDataset:
     def __len__(self) -> int:
         return len(self._indices)
     
-    def __getitem__(self, idx: int) -> Tuple[np.ndarray, Optional[int], int]:
+    def __getitem__(self, idx: int):
         """
         Get a single sample by index position.
         
@@ -322,9 +325,10 @@ class SignalDataset:
             idx: Integer index (position in dataset)
             
         Returns:
-            Tuple of (signal, label, ecg_id)
+            Tuple of (signal, label, ecg_id) or (signal, label, localization, ecg_id)
             - signal: numpy array of shape (samples, channels)
             - label: label value if label_column specified, else None
+            - localization: optional localization target if localization_column specified
             - ecg_id: original ecg_id from the DataFrame index
         """
         attempts = 0
@@ -376,6 +380,10 @@ class SignalDataset:
             label = None
             if self.label_column is not None:
                 label = row[self.label_column]
+
+            if self.localization_column is not None:
+                localization = row[self.localization_column]
+                return signal, label, localization, ecg_id
 
             return signal, label, ecg_id
 

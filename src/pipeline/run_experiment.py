@@ -16,8 +16,8 @@ from torch.utils.data import DataLoader
 
 from src.config import PTBXLConfig, get_default_config
 from src.data.signals import SignalDataset, compute_channel_stats_streaming, normalize_with_stats
-from src.models.cnn import ECGCNNConfig, build_sequential_cnn
-from src.models.trainer import train_one_epoch, validate
+from src.models.cnn import ECGCNNConfig, build_multitask_cnn, build_sequential_cnn
+from src.models.trainer import train_one_epoch, train_one_epoch_multitask, validate, validate_multitask
 from src.pipeline.data_pipeline import prepare_splits
 from src.pipeline.data_pipeline import ECGDatasetTorch
 
@@ -37,6 +37,7 @@ def build_datasets(
     df,
     splits: Dict[str, np.ndarray],
     label_column: str,
+    localization_column: str | None = None,
     stats_batch_size: int = 128,
 ) -> Dict[str, ECGDatasetTorch]:
     train_df = df.loc[splits["train"]]
@@ -64,6 +65,7 @@ def build_datasets(
             config.data_root,
             filename_column=config.filename_column,
             label_column=label_column,
+            localization_column=localization_column,
             transform=normalize,
             expected_channels=12,
         ),
@@ -72,6 +74,7 @@ def build_datasets(
             config.data_root,
             filename_column=config.filename_column,
             label_column=label_column,
+            localization_column=localization_column,
             transform=normalize,
             expected_channels=12,
         ),
@@ -80,6 +83,7 @@ def build_datasets(
             config.data_root,
             filename_column=config.filename_column,
             label_column=label_column,
+            localization_column=localization_column,
             transform=normalize,
             expected_channels=12,
         ),
@@ -94,15 +98,36 @@ def train_and_evaluate(
     epochs: int,
     device: torch.device,
     task: str,
+    localization_weight: float = 1.0,
+    multitask: bool = False,
 ) -> Dict[str, object]:
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     history: List[Dict[str, float]] = []
 
     for epoch in range(1, epochs + 1):
         print(f"Epoch {epoch}/{epochs} - training...")
-        train_loss = train_one_epoch(model, loaders["train"], optimizer, device, task=task)
+        if multitask:
+            train_loss = train_one_epoch_multitask(
+                model,
+                loaders["train"],
+                optimizer,
+                device,
+                task=task,
+                localization_weight=localization_weight,
+            )
+        else:
+            train_loss = train_one_epoch(model, loaders["train"], optimizer, device, task=task)
         print(f"Epoch {epoch}/{epochs} - validating...")
-        val_loss, val_metrics = validate(model, loaders["val"], device, task=task)
+        if multitask:
+            val_loss, val_metrics = validate_multitask(
+                model,
+                loaders["val"],
+                device,
+                task=task,
+                localization_weight=localization_weight,
+            )
+        else:
+            val_loss, val_metrics = validate(model, loaders["val"], device, task=task)
 
         record = {
             "epoch": epoch,
@@ -128,7 +153,16 @@ def train_and_evaluate(
         )
 
     print("Evaluating on test set...")
-    test_loss, test_metrics = validate(model, loaders["test"], device, task=task)
+    if multitask:
+        test_loss, test_metrics = validate_multitask(
+            model,
+            loaders["test"],
+            device,
+            task=task,
+            localization_weight=localization_weight,
+        )
+    else:
+        test_loss, test_metrics = validate(model, loaders["test"], device, task=task)
     print(
         "Test summary: "
         "loss={loss:.4f} "
@@ -200,6 +234,18 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--stats-batch-size", type=int, default=128)
     parser.add_argument(
+        "--localization-column",
+        type=str,
+        default=None,
+        help="Optional dataframe column with localization targets (e.g., start/end indices).",
+    )
+    parser.add_argument(
+        "--localization-weight",
+        type=float,
+        default=1.0,
+        help="Loss weight for localization head in multi-task training.",
+    )
+    parser.add_argument(
         "--data-root",
         type=Path,
         default=None,
@@ -232,6 +278,7 @@ def main() -> None:
         df,
         splits,
         label_column,
+        localization_column=args.localization_column,
         stats_batch_size=args.stats_batch_size,
     )
 
@@ -250,9 +297,20 @@ def main() -> None:
     )
     model_config = ECGCNNConfig()
     num_classes = 1 if config.task == "binary" else 5
-    model = build_sequential_cnn(model_config, num_classes=num_classes).to(device)
+    if args.localization_column:
+        model = build_multitask_cnn(model_config, num_classes=num_classes).to(device)
+    else:
+        model = build_sequential_cnn(model_config, num_classes=num_classes).to(device)
 
-    metrics = train_and_evaluate(model, loaders, args.epochs, device, task=config.task)
+    metrics = train_and_evaluate(
+        model,
+        loaders,
+        args.epochs,
+        device,
+        task=config.task,
+        localization_weight=args.localization_weight,
+        multitask=bool(args.localization_column),
+    )
 
     logs_dir = Path("logs")
     checkpoints_dir = Path("checkpoints")

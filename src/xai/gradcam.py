@@ -33,7 +33,13 @@ class GradCAM:
         """Generate Grad-CAM heatmap for the given inputs."""
 
         self.model.zero_grad(set_to_none=True)
-        logits = self.model(inputs)
+        output = self.model(inputs)
+        if isinstance(output, dict):
+            logits = output.get("logits")
+            if logits is None:
+                raise KeyError("GradCAM expects 'logits' in model output dict.")
+        else:
+            logits = output
         if isinstance(logits, (tuple, list)):
             raise TypeError("GradCAM expects model output to be logits only.")
         if logits.dim() == 1:

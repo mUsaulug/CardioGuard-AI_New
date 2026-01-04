@@ -16,6 +16,7 @@ class ECGCNNConfig:
     num_filters: int = 64
     kernel_size: int = 7
     dropout: float = 0.3
+    localization_output_dim: int = 2
 
 
 class ECGBackbone(nn.Module):
@@ -100,6 +101,27 @@ class ECGCNN(nn.Module):
         return self.head(embeddings)
 
 
+class MultiTaskECGCNN(nn.Module):
+    """Conv1D-based ECG model with shared backbone and localization head."""
+
+    def __init__(self, config: ECGCNNConfig, num_classes: int = 1) -> None:
+        super().__init__()
+        self.backbone = ECGBackbone(config)
+        self.head = build_classification_head(config.num_filters, num_classes=num_classes)
+        self.localization_head = LocalizationHead(
+            config.num_filters,
+            output_dim=config.localization_output_dim,
+        )
+
+    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+        """Forward pass returning classification logits and localization output."""
+
+        embeddings = self.backbone(x)
+        logits = self.head(embeddings)
+        localization = self.localization_head(embeddings)
+        return {"logits": logits, "localization": localization}
+
+
 class CNNEncoder(ECGBackbone):
     """Backward-compatible alias for ECGBackbone."""
 
@@ -111,8 +133,18 @@ def build_classification_head(in_features: int, num_classes: int) -> nn.Module:
     return MultiClassHead(in_features, num_classes=num_classes)
 
 
+def build_localization_head(in_features: int, output_dim: int = 2) -> nn.Module:
+    """Create a localization head for regression outputs."""
+    return LocalizationHead(in_features, output_dim=output_dim)
+
+
 def build_sequential_cnn(config: ECGCNNConfig, num_classes: int) -> nn.Sequential:
     """Build Sequential(backbone, head) for stable checkpoint schemas."""
     backbone = ECGBackbone(config)
     head = build_classification_head(config.num_filters, num_classes=num_classes)
     return nn.Sequential(backbone, head)
+
+
+def build_multitask_cnn(config: ECGCNNConfig, num_classes: int) -> MultiTaskECGCNN:
+    """Build a multi-task CNN with shared backbone."""
+    return MultiTaskECGCNN(config, num_classes=num_classes)

@@ -27,6 +27,7 @@ def plot_gradcam_heatmap(
     title: str = "Grad-CAM Attention on ECG",
     figsize: Tuple[int, int] = (14, 10),
     cmap: str = "hot",
+    localization_bounds: Optional[Tuple[int, int]] = None,
 ) -> plt.Figure:
     """
     Plot 12-lead ECG with Grad-CAM attention overlay.
@@ -39,6 +40,7 @@ def plot_gradcam_heatmap(
         title: Plot title
         figsize: Figure size
         cmap: Colormap for attention overlay
+        localization_bounds: Optional (start, end) indices for localization overlay
         
     Returns:
         matplotlib Figure object
@@ -65,7 +67,7 @@ def plot_gradcam_heatmap(
     for i, (ax, lead_name) in enumerate(zip(axes, lead_names)):
         # Plot ECG signal
         ax.plot(time, signal[i], color="black", linewidth=0.8, alpha=0.8)
-        
+
         # Overlay attention as colored background
         for j in range(n_samples - 1):
             ax.axvspan(
@@ -73,6 +75,18 @@ def plot_gradcam_heatmap(
                 alpha=cam_norm[j] * 0.6,
                 color=plt.cm.get_cmap(cmap)(cam_norm[j]),
                 linewidth=0,
+            )
+
+        if localization_bounds is not None:
+            start, end = localization_bounds
+            ax.axvspan(
+                start,
+                end,
+                color="#1f77b4",
+                alpha=0.15,
+                linestyle="--",
+                linewidth=1.0,
+                edgecolor="#1f77b4",
             )
         
         # Lead label
@@ -98,6 +112,60 @@ def plot_gradcam_heatmap(
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
         print(f"Saved Grad-CAM heatmap to {save_path}")
     
+    return fig
+
+
+def plot_ecg_with_localization(
+    signal: np.ndarray,
+    localization_bounds: Tuple[int, int],
+    lead_names: Optional[List[str]] = None,
+    save_path: Optional[Path] = None,
+    title: str = "Localization Overlay",
+    figsize: Tuple[int, int] = (14, 10),
+    line_color: str = "#222222",
+) -> plt.Figure:
+    """
+    Plot 12-lead ECG with localization bounds overlayed on the time axis.
+    """
+    if lead_names is None:
+        lead_names = LEAD_NAMES
+
+    if signal.shape[0] != 12 and signal.shape[1] == 12:
+        signal = signal.T
+
+    n_leads, n_samples = signal.shape
+    time = np.arange(n_samples)
+
+    fig, axes = plt.subplots(n_leads, 1, figsize=figsize, sharex=True)
+    fig.suptitle(title, fontsize=14, fontweight="bold")
+
+    start, end = localization_bounds
+
+    for ax, lead_name, lead_signal in zip(axes, lead_names, signal):
+        ax.plot(time, lead_signal, color=line_color, linewidth=0.8)
+        ax.axvspan(
+            start,
+            end,
+            color="#1f77b4",
+            alpha=0.2,
+            linewidth=0,
+        )
+        ax.set_ylabel(lead_name, fontsize=10, rotation=0, ha="right", va="center")
+        ax.set_yticks([])
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_visible(False)
+
+    axes[-1].set_xlabel("Sample", fontsize=12)
+
+    plt.tight_layout()
+
+    if save_path:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        print(f"Saved localization overlay to {save_path}")
+
     return fig
 
 

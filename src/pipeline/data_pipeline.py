@@ -212,10 +212,19 @@ class ECGDatasetTorch(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, idx: int):
-        signal, label, ecg_id = self.dataset[idx]
+        item = self.dataset[idx]
+        if len(item) == 4:
+            signal, label, localization, ecg_id = item
+        else:
+            signal, label, ecg_id = item
+            localization = None
         signal_tensor = torch.as_tensor(signal, dtype=self.signal_dtype)
         if label is None:
             label_tensor = None
         else:
             label_tensor = torch.tensor(label, dtype=self.label_dtype)
-        return signal_tensor, label_tensor, ecg_id
+        if localization is None:
+            localization_tensor = None
+        else:
+            localization_tensor = torch.tensor(localization, dtype=torch.float32)
+        return signal_tensor, label_tensor, localization_tensor, ecg_id

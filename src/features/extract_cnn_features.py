@@ -29,13 +29,15 @@ def extract_cnn_features(
     ids: List[str] = []
     with torch.no_grad():
         for batch in dataloader:
-            if len(batch) == 3:
+            if len(batch) == 4:
+                inputs, batch_labels, _, batch_ids = batch
+            elif len(batch) == 3:
                 inputs, batch_labels, batch_ids = batch
             elif len(batch) == 2:
                 inputs, batch_labels = batch
                 batch_ids = None
             else:
-                raise ValueError("Expected batch with 2 or 3 elements (inputs, labels, [ids]).")
+                raise ValueError("Expected batch with 2 to 4 elements (inputs, labels, [localization], [ids]).")
             inputs = inputs.to(device_obj)
             embeddings = model(inputs).cpu().numpy()
             features.append(embeddings)

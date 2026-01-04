@@ -132,7 +132,9 @@ def get_cnn_probs(
 
     with torch.no_grad():
         for batch in dataloader:
-            if len(batch) == 3:
+            if len(batch) == 4:
+                inputs, labels, _, _ = batch
+            elif len(batch) == 3:
                 inputs, labels, _ = batch
             else:
                 inputs, labels = batch
@@ -141,7 +143,11 @@ def get_cnn_probs(
             inputs = inputs.to(device_obj).float()
             # Forward pass returns logits (or whatever the head returns)
             # BinaryHead returns logits squeezed to (batch,)
-            logits = model(inputs)
+            logits_output = model(inputs)
+            if isinstance(logits_output, dict):
+                logits = logits_output["logits"]
+            else:
+                logits = logits_output
             
             if logits.ndim > 1 and logits.shape[1] > 1:
                 probs = F.softmax(logits, dim=1).cpu().numpy()
@@ -168,7 +174,9 @@ def get_cnn_embeddings(
 
     with torch.no_grad():
         for batch in dataloader:
-            if len(batch) == 3:
+            if len(batch) == 4:
+                inputs, _, _, _ = batch
+            elif len(batch) == 3:
                 inputs, _, _ = batch
             else:
                 inputs, _ = batch

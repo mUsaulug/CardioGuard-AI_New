@@ -25,13 +25,13 @@ import numpy as np
 import torch
 
 from src.data.signals import normalize_with_stats
-from src.models.cnn import ECGCNN, ECGCNNConfig
+from src.models.cnn import ECGCNN, ECGCNNConfig, MultiTaskECGCNN
 from src.models.xgb import load_xgb
 from src.utils.checkpoints import load_checkpoint_state_dict
 from src.xai.gradcam import GradCAM
 from src.xai.shap_xgb import explain_xgb, plot_shap_waterfall
 from src.xai.summary import summarize_visual_explanations
-from src.xai.visualize import plot_gradcam_heatmap, plot_lead_attention
+from src.xai.visualize import plot_ecg_with_localization, plot_gradcam_heatmap, plot_lead_attention
 from src.utils.llm_prompt import build_clinical_prompt, format_explanation_text
 
 
@@ -40,8 +40,11 @@ DEFAULT_ALPHA = 0.15
 
 def load_cnn_model(checkpoint_path: Path, device: str) -> ECGCNN:
     config = ECGCNNConfig()
-    model = ECGCNN(config)
     state_dict = load_checkpoint_state_dict(checkpoint_path, device)
+    if any(key.startswith("localization_head") for key in state_dict):
+        model: ECGCNN | MultiTaskECGCNN = MultiTaskECGCNN(config)
+    else:
+        model = ECGCNN(config)
     model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
@@ -105,6 +108,27 @@ def apply_normalization(signal: np.ndarray, stats: Optional[Tuple[np.ndarray, np
     return normalized.T
 
 
+def decode_localization_bounds(
+    localization: Optional[torch.Tensor],
+    num_samples: int,
+) -> Optional[Tuple[int, int]]:
+    if localization is None:
+        return None
+    localization_np = localization.detach().cpu().numpy().reshape(-1)
+    if localization_np.size < 2:
+        return None
+    normalized = 1 / (1 + np.exp(-localization_np[:2]))
+    start_norm = float(min(normalized[0], normalized[1]))
+    end_norm = float(max(normalized[0], normalized[1]))
+    start_idx = int(round(start_norm * (num_samples - 1)))
+    end_idx = int(round(end_norm * (num_samples - 1)))
+    start_idx = max(0, min(start_idx, num_samples - 1))
+    end_idx = max(0, min(end_idx, num_samples - 1))
+    if end_idx <= start_idx:
+        end_idx = min(start_idx + 1, num_samples - 1)
+    return start_idx, end_idx
+
+
 def load_threshold(metrics_path: Optional[Path]) -> float:
     if metrics_path is None or not metrics_path.exists():
         return 0.5
@@ -137,6 +161,7 @@ def maybe_generate_xai(
     shap_embedding: np.ndarray,
     feature_names: list[str],
     output_dir: Optional[Path],
+    localization_bounds: Optional[Tuple[int, int]] = None,
 ) -> Dict[str, str]:
     if output_dir is None:
         return {}
@@ -144,10 +169,27 @@ def maybe_generate_xai(
     stem = "inference"
 
     gradcam_path = output_dir / f"{stem}_gradcam.png"
-    plot_gradcam_heatmap(signal, cam, save_path=gradcam_path, title="Grad-CAM Attention")
+    plot_gradcam_heatmap(
+        signal,
+        cam,
+        save_path=gradcam_path,
+        title="Grad-CAM Attention",
+        localization_bounds=localization_bounds,
+    )
 
     lead_attention_path = output_dir / f"{stem}_lead_attention.png"
     plot_lead_attention(cam, signal=signal, save_path=lead_attention_path, title="Lead Attention")
+
+    if localization_bounds is not None:
+        localization_path = output_dir / f"{stem}_localization.png"
+        plot_ecg_with_localization(
+            signal,
+            localization_bounds=localization_bounds,
+            save_path=localization_path,
+            title="Localization Overlay",
+        )
+    else:
+        localization_path = None
 
     shap_path = output_dir / f"{stem}_shap_waterfall.png"
     plot_shap_waterfall(
@@ -163,6 +205,7 @@ def maybe_generate_xai(
     return {
         "gradcam": gradcam_path.as_posix(),
         "lead_attention": lead_attention_path.as_posix(),
+        "localization": localization_path.as_posix() if localization_path else "",
         "shap": shap_path.as_posix(),
     }
 
@@ -208,7 +251,13 @@ def main() -> None:
     signal_tensor = signal_tensor.to(args.device)
 
     with torch.no_grad():
-        cnn_logit = cnn_model(signal_tensor)
+        output = cnn_model(signal_tensor)
+        if isinstance(output, dict):
+            cnn_logit = output["logits"]
+            localization_pred = output.get("localization")
+        else:
+            cnn_logit = output
+            localization_pred = None
         cnn_prob = torch.sigmoid(cnn_logit).item()
         embedding = cnn_model.backbone(signal_tensor).cpu().numpy()
 
@@ -238,6 +287,11 @@ def main() -> None:
     threshold = load_threshold(args.metrics_path)
     prediction_label = "MI" if ensemble_prob >= threshold else "NORM"
 
+    localization_bounds = decode_localization_bounds(
+        localization_pred,
+        num_samples=signal_tensor.shape[-1],
+    )
+
     xai_images = maybe_generate_xai(
         signal,
         cam,
@@ -246,6 +300,7 @@ def main() -> None:
         xgb_embedding,
         feature_names,
         args.xai_output_dir,
+        localization_bounds=localization_bounds,
     )
 
     lead_summary = visual_summary["lead_attention"]
@@ -277,6 +332,9 @@ def main() -> None:
             "cnn": cnn_prob,
             "xgb": xgb_prob,
             "ensemble": ensemble_prob,
+        },
+        "localization": {
+            "bounds": localization_bounds,
         },
         "xai_images": xai_images,
         "explanation_text": explanation_text,
