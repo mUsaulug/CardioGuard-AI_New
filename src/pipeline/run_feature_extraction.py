@@ -72,6 +72,12 @@ def main() -> None:
         help="Optional cache directory for preprocessed signals",
     )
     parser.add_argument(
+        "--task",
+        choices=["binary", "multiclass", "auto"],
+        default="auto",
+        help="Label task for feature extraction (auto detects from checkpoint).",
+    )
+    parser.add_argument(
         "--data-root",
         type=Path,
         default=None,
@@ -93,18 +99,24 @@ def main() -> None:
     args = parser.parse_args()
 
     config = get_default_config()
-    config.task = "binary"
     if args.data_root is not None:
         config.data_root = args.data_root
     if args.sampling_rate is not None:
         config.sampling_rate = args.sampling_rate
+    device = torch.device(args.device)
+    state_dict = load_checkpoint_state_dict(args.checkpoint, device)
+    head_weight = state_dict.get("head.classifier.weight")
+    inferred_classes = int(head_weight.shape[0]) if head_weight is not None else 1
+    if args.task == "auto":
+        config.task = "multiclass" if inferred_classes > 1 else "binary"
+    else:
+        config.task = args.task
+    num_classes = 1 if config.task == "binary" else inferred_classes
     set_random_seed(config.random_seed)
 
     dataloaders = build_dataloaders(config, args.batch_size, args.num_workers, args.cache_dir)
 
-    device = torch.device(args.device)
-    model = ECGCNN(ECGCNNConfig())
-    state_dict = load_checkpoint_state_dict(args.checkpoint, device)
+    model = ECGCNN(ECGCNNConfig(), num_classes=num_classes)
     model.load_state_dict(state_dict)
     model.eval()
 

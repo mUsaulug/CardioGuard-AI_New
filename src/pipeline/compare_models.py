@@ -57,21 +57,49 @@ def optimize_ensemble_weight(
     Returns:
         Tuple of (best_alpha, best_score, all_scores_dict)
     """
-    from sklearn.metrics import roc_auc_score, average_precision_score, f1_score
+    from sklearn.metrics import accuracy_score, average_precision_score, f1_score, roc_auc_score
+    from sklearn.preprocessing import label_binarize
     
     if alpha_range is None:
         alpha_range = np.linspace(0, 1, 21)  # 0.00, 0.05, ..., 1.00
     
-    metric_funcs: Dict[str, Callable] = {
-        "roc_auc": lambda y, p: roc_auc_score(y, p),
-        "pr_auc": lambda y, p: average_precision_score(y, p),
-        "f1": lambda y, p: f1_score(y, (p >= 0.5).astype(int)),
-    }
+    def _binary_metrics(name: str) -> Callable:
+        if name == "roc_auc":
+            return lambda y, p: roc_auc_score(y, p)
+        if name == "pr_auc":
+            return lambda y, p: average_precision_score(y, p)
+        if name == "f1":
+            return lambda y, p: f1_score(y, (p >= 0.5).astype(int))
+        if name == "accuracy":
+            return lambda y, p: accuracy_score(y, (p >= 0.5).astype(int))
+        raise ValueError(f"Unknown metric: {name}")
+
+    def _multiclass_metrics(name: str, num_classes: int) -> Callable:
+        if name == "roc_auc":
+            return lambda y, p: roc_auc_score(
+                label_binarize(y, classes=np.arange(num_classes)),
+                p,
+                average="macro",
+                multi_class="ovr",
+            )
+        if name == "pr_auc":
+            return lambda y, p: average_precision_score(
+                label_binarize(y, classes=np.arange(num_classes)),
+                p,
+                average="macro",
+            )
+        if name == "f1_macro":
+            return lambda y, p: f1_score(y, np.argmax(p, axis=1), average="macro")
+        if name == "accuracy":
+            return lambda y, p: accuracy_score(y, np.argmax(p, axis=1))
+        raise ValueError(f"Unknown metric: {name}")
     
-    if metric not in metric_funcs:
-        raise ValueError(f"Unknown metric: {metric}. Choose from {list(metric_funcs.keys())}")
-    
-    score_func = metric_funcs[metric]
+    is_multiclass = p_cnn.ndim > 1
+    num_classes = p_cnn.shape[1] if is_multiclass else 2
+    if is_multiclass:
+        score_func = _multiclass_metrics(metric, num_classes)
+    else:
+        score_func = _binary_metrics(metric)
     
     best_alpha = 0.5
     best_score = 0.0
@@ -115,8 +143,10 @@ def get_cnn_probs(
             # BinaryHead returns logits squeezed to (batch,)
             logits = model(inputs)
             
-            # Apply sigmoid for binary classification
-            probs = torch.sigmoid(logits).cpu().numpy()
+            if logits.ndim > 1 and logits.shape[1] > 1:
+                probs = F.softmax(logits, dim=1).cpu().numpy()
+            else:
+                probs = torch.sigmoid(logits).cpu().numpy()
             
             probs_list.append(probs)
             labels_list.append(labels.numpy())
@@ -156,13 +186,14 @@ def build_loader(
     indices: np.ndarray,
     config,
     batch_size: int,
+    label_column: str,
     transform: Optional[callable] = None,
 ) -> DataLoader:
     dataset = SignalDataset(
         df=df.loc[indices],
         base_path=config.data_root,
         filename_column=config.filename_column,
-        label_column="label_mi_norm",
+        label_column=label_column,
         transform=transform,
         expected_channels=12,
     )
@@ -222,6 +253,8 @@ def _load_best_threshold(metrics_path: Path) -> float:
     if not metrics_path.exists():
         return 0.5
     payload = _load_json(metrics_path)
+    if payload.get("task") == "multiclass":
+        return 0.5
     val_payload = payload.get("val", {})
     threshold = val_payload.get("best_threshold", 0.5)
     try:
@@ -282,6 +315,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size for inference")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--output-dir", type=Path, default=Path("reports"), help="Output directory")
+    parser.add_argument("--task", choices=["binary", "multiclass"], default="binary")
     args = parser.parse_args()
 
     if args.metrics_only:
@@ -304,14 +338,19 @@ def main() -> None:
     
     # Load SCP statements and generate labels
     from src.data.loader import load_scp_statements
-    from src.data.labels import add_binary_mi_labels
+    from src.data.labels import add_5class_labels, add_binary_mi_labels
     
     print("Generating labels...")
     scp_df = load_scp_statements(config.scp_statements_path)
-    df = add_binary_mi_labels(df, scp_df)
+    if args.task == "multiclass":
+        df = add_5class_labels(df, scp_df, multi_label=False)
+        label_column = "label_5class"
+    else:
+        df = add_binary_mi_labels(df, scp_df)
+        label_column = "label_mi_norm"
     
     # Filter valid labels and test split
-    df = df[df["label_mi_norm"] != -1].copy()
+    df = df[df[label_column] != -1].copy()
     
     # Get train/val/test split
     train_indices, val_indices, test_indices = get_standard_split(df)
@@ -340,13 +379,14 @@ def main() -> None:
         normalized = normalize_with_stats(signal, mean_flat, std_flat)
         return np.transpose(normalized, (1, 0))
 
-    val_loader = build_loader(df, valid_val_indices, config, args.batch_size, transform=normalize)
-    test_loader = build_loader(df, valid_test_indices, config, args.batch_size, transform=normalize)
+    val_loader = build_loader(df, valid_val_indices, config, args.batch_size, label_column, transform=normalize)
+    test_loader = build_loader(df, valid_test_indices, config, args.batch_size, label_column, transform=normalize)
     
     # 2. CNN Inference
     print("Loading CNN model...")
     cnn_config = ECGCNNConfig()
-    cnn_model = ECGCNN(cnn_config)
+    num_classes = 1 if args.task == "binary" else 5
+    cnn_model = ECGCNN(cnn_config, num_classes=num_classes)
     
     if args.cnn_path.exists():
         state_dict = load_checkpoint_state_dict(args.cnn_path, args.device)
@@ -389,7 +429,7 @@ def main() -> None:
 
     # 4. Ensemble with Optimized Alpha (validation)
     print("\nOptimizing ensemble weight α (validation)...")
-    metric_name = "roc_auc"
+    metric_name = "roc_auc" if args.task == "binary" else "f1_macro"
     best_alpha, best_score, alpha_scores = optimize_ensemble_weight(
         y_val, cnn_probs_val, xgb_probs_val, metric=metric_name
     )
@@ -410,17 +450,29 @@ def main() -> None:
     
     # 5. Metrics
     print("\nCalculating metrics...")
-    from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, f1_score
+    from sklearn.metrics import accuracy_score, average_precision_score, f1_score, roc_auc_score
+    from sklearn.preprocessing import label_binarize
     xgb_threshold = _load_best_threshold(args.xgb_metrics)
     
     def calc_metrics(y_t, y_p, name, threshold=0.5):
+        if y_p.ndim > 1:
+            y_pred = np.argmax(y_p, axis=1)
+            num_classes = y_p.shape[1]
+            y_true_bin = label_binarize(y_t, classes=np.arange(num_classes))
+            return {
+                "Model": name,
+                "AUC": roc_auc_score(y_true_bin, y_p, average="macro", multi_class="ovr"),
+                "PR_AUC": average_precision_score(y_true_bin, y_p, average="macro"),
+                "F1": f1_score(y_t, y_pred, average="macro"),
+                "Accuracy": accuracy_score(y_t, y_pred),
+            }
         y_pred = (y_p >= threshold).astype(int)
         return {
             "Model": name,
             "AUC": roc_auc_score(y_t, y_p),
             "PR_AUC": average_precision_score(y_t, y_p),
             "F1": f1_score(y_t, y_pred),
-            "Accuracy": accuracy_score(y_t, y_pred)
+            "Accuracy": accuracy_score(y_t, y_pred),
         }
 
     results = []

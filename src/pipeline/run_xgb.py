@@ -19,6 +19,7 @@ from src.models.xgb import (
     XGBConfig,
     calibrate_xgb,
     compute_binary_metrics,
+    compute_multiclass_metrics,
     find_best_threshold,
     predict_xgb,
     save_xgb,
@@ -69,7 +70,10 @@ def evaluate_split(
     threshold: float,
 ) -> Dict[str, object]:
     proba, _ = predict_xgb(model, features)
-    metrics = compute_binary_metrics(labels, proba, threshold=threshold)
+    if proba.ndim > 1:
+        metrics = compute_multiclass_metrics(labels, proba)
+    else:
+        metrics = compute_binary_metrics(labels, proba, threshold=threshold)
     return {"split": name, "metrics": metrics}
 
 
@@ -114,28 +118,35 @@ def main() -> None:
         model_for_eval = calibrated_model
 
     val_proba, _ = predict_xgb(model_for_eval, X_val)
-    best_threshold, best_threshold_f1 = find_best_threshold(y_val, val_proba)
+    is_multiclass = val_proba.ndim > 1
+    if is_multiclass:
+        best_threshold = None
+        best_threshold_f1 = None
+    else:
+        best_threshold, best_threshold_f1 = find_best_threshold(y_val, val_proba)
 
     results = {
+        "task": "multiclass" if is_multiclass else "binary",
         "val": {
             **val_metrics,
             "best_threshold": best_threshold,
             "best_threshold_f1": best_threshold_f1,
             "calibration_method": args.calibration,
+            "threshold_strategy": "argmax" if is_multiclass else "binary_f1",
         },
         "train": evaluate_split(
             "train",
             model_for_eval,
             X_train,
             y_train,
-            threshold=best_threshold,
+            threshold=best_threshold or 0.5,
         )["metrics"],
         "test": evaluate_split(
             "test",
             model_for_eval,
             X_test,
             y_test,
-            threshold=best_threshold,
+            threshold=best_threshold or 0.5,
         )["metrics"],
     }
 

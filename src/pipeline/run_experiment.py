@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 
 from src.config import PTBXLConfig, get_default_config
 from src.data.signals import SignalDataset, compute_channel_stats_streaming, normalize_with_stats
-from src.models.cnn import BinaryHead, ECGBackbone, ECGCNNConfig
+from src.models.cnn import ECGCNNConfig, build_sequential_cnn
 from src.models.trainer import train_one_epoch, validate
 from src.pipeline.data_pipeline import prepare_splits
 from src.pipeline.data_pipeline import ECGDatasetTorch
@@ -93,15 +93,16 @@ def train_and_evaluate(
     loaders: Dict[str, DataLoader],
     epochs: int,
     device: torch.device,
+    task: str,
 ) -> Dict[str, object]:
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     history: List[Dict[str, float]] = []
 
     for epoch in range(1, epochs + 1):
         print(f"Epoch {epoch}/{epochs} - training...")
-        train_loss = train_one_epoch(model, loaders["train"], optimizer, device)
+        train_loss = train_one_epoch(model, loaders["train"], optimizer, device, task=task)
         print(f"Epoch {epoch}/{epochs} - validating...")
-        val_loss, val_metrics = validate(model, loaders["val"], device)
+        val_loss, val_metrics = validate(model, loaders["val"], device, task=task)
 
         record = {
             "epoch": epoch,
@@ -127,7 +128,7 @@ def train_and_evaluate(
         )
 
     print("Evaluating on test set...")
-    test_loss, test_metrics = validate(model, loaders["test"], device)
+    test_loss, test_metrics = validate(model, loaders["test"], device, task=task)
     print(
         "Test summary: "
         "loss={loss:.4f} "
@@ -222,8 +223,6 @@ def main() -> None:
 
     if args.strategy != "cnn":
         raise ValueError(f"Unsupported strategy: {args.strategy}")
-    if config.task != "binary":
-        raise ValueError("Only binary classification is supported for the CNN strategy.")
 
     set_random_seed(config.random_seed)
 
@@ -250,11 +249,10 @@ def main() -> None:
         f"test: {len(datasets['test'])}"
     )
     model_config = ECGCNNConfig()
-    backbone = ECGBackbone(model_config)
-    head = BinaryHead(model_config.num_filters)
-    model = torch.nn.Sequential(backbone, head).to(device)
+    num_classes = 1 if config.task == "binary" else 5
+    model = build_sequential_cnn(model_config, num_classes=num_classes).to(device)
 
-    metrics = train_and_evaluate(model, loaders, args.epochs, device)
+    metrics = train_and_evaluate(model, loaders, args.epochs, device, task=config.task)
 
     logs_dir = Path("logs")
     checkpoints_dir = Path("checkpoints")

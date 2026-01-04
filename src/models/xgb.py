@@ -19,6 +19,7 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score,
 )
+from sklearn.preprocessing import label_binarize
 import inspect
 import warnings
 
@@ -50,11 +51,24 @@ class ManualCalibratedModel:
         self.calibrator = calibrator
 
     def predict_proba(self, features: np.ndarray) -> np.ndarray:
-        base_proba = self.base_model.predict_proba(features)[:, 1]
+        base_proba = self.base_model.predict_proba(features)
+        if isinstance(self.calibrator, list):
+            calibrated_columns = []
+            for idx, calibrator in enumerate(self.calibrator):
+                class_proba = base_proba[:, idx]
+                if hasattr(calibrator, "predict_proba"):
+                    calibrated = calibrator.predict_proba(class_proba.reshape(-1, 1))[:, 1]
+                else:
+                    calibrated = calibrator.predict(class_proba.reshape(-1, 1))
+                calibrated_columns.append(np.clip(calibrated, 1e-6, 1.0))
+            calibrated_array = np.column_stack(calibrated_columns)
+            calibrated_array = calibrated_array / calibrated_array.sum(axis=1, keepdims=True)
+            return calibrated_array
+        positive_proba = base_proba[:, 1] if base_proba.ndim > 1 else base_proba
         if hasattr(self.calibrator, "predict_proba"):
-            calibrated = self.calibrator.predict_proba(base_proba.reshape(-1, 1))[:, 1]
+            calibrated = self.calibrator.predict_proba(positive_proba.reshape(-1, 1))[:, 1]
         else:
-            calibrated = self.calibrator.predict(base_proba.reshape(-1, 1))
+            calibrated = self.calibrator.predict(positive_proba.reshape(-1, 1))
         calibrated = np.clip(calibrated, 0.0, 1.0)
         return np.column_stack([1 - calibrated, calibrated])
 
@@ -91,6 +105,29 @@ def _manual_calibration(
     return ManualCalibratedModel(model, lr)
 
 
+def _manual_calibration_multiclass(
+    model: XGBClassifier,
+    features: np.ndarray,
+    labels: np.ndarray,
+    method: str,
+    num_classes: int,
+) -> ManualCalibratedModel:
+    base_proba = model.predict_proba(features)
+    calibrators = []
+    for class_idx in range(num_classes):
+        class_targets = (labels == class_idx).astype(int)
+        class_proba = base_proba[:, class_idx]
+        if method == "isotonic":
+            iso = IsotonicRegression(out_of_bounds="clip")
+            iso.fit(class_proba, class_targets)
+            calibrators.append(iso)
+        else:
+            lr = LogisticRegression(solver="lbfgs")
+            lr.fit(class_proba.reshape(-1, 1), class_targets)
+            calibrators.append(lr)
+    return ManualCalibratedModel(model, calibrators)
+
+
 def _predict_booster_proba(model: Booster, features: np.ndarray) -> np.ndarray:
     dmatrix = DMatrix(features)
     proba = model.predict(dmatrix)
@@ -102,12 +139,17 @@ def predict_xgb(
     features: np.ndarray,
     threshold: float = 0.5,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Predict probabilities and binary labels with an XGBoost model."""
+    """Predict probabilities and labels with an XGBoost model."""
     if isinstance(model, Booster):
         proba = _predict_booster_proba(model, features)
     else:
-        proba = model.predict_proba(features)[:, 1]
-    preds = (proba >= threshold).astype(int)
+        proba = model.predict_proba(features)
+    proba = np.asarray(proba)
+    if proba.ndim == 1 or (proba.ndim == 2 and proba.shape[1] == 2):
+        positive = proba if proba.ndim == 1 else proba[:, 1]
+        preds = (positive >= threshold).astype(int)
+        return positive, preds
+    preds = np.argmax(proba, axis=1)
     return proba, preds
 
 
@@ -125,6 +167,25 @@ def compute_binary_metrics(
         "pr_auc": float(average_precision_score(y_true, y_proba)),
         "f1": float(f1_score(y_true, preds)),
         "confusion_matrix": confusion_matrix(y_true, preds).tolist(),
+        "report": classification_report(y_true, preds, output_dict=True),
+    }
+
+
+def compute_multiclass_metrics(
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+) -> Dict[str, Any]:
+    """Compute macro metrics for multi-class predictions."""
+    y_true = np.asarray(y_true)
+    y_proba = np.asarray(y_proba)
+    preds = np.argmax(y_proba, axis=1)
+    num_classes = y_proba.shape[1]
+    y_true_bin = label_binarize(y_true, classes=np.arange(num_classes))
+    return {
+        "accuracy": float(accuracy_score(y_true, preds)),
+        "roc_auc": float(roc_auc_score(y_true_bin, y_proba, average="macro", multi_class="ovr")),
+        "pr_auc": float(average_precision_score(y_true_bin, y_proba, average="macro")),
+        "f1": float(f1_score(y_true, preds, average="macro")),
         "report": classification_report(y_true, preds, output_dict=True),
     }
 
@@ -155,13 +216,19 @@ def calibrate_xgb(
 ) -> Union[CalibratedClassifierCV, ManualCalibratedModel]:
     """Calibrate XGBoost probabilities using a validation split."""
 
+    num_classes = int(np.unique(labels).size)
+    is_multiclass = num_classes > 2
     if not _prefit_calibration_supported():
+        if is_multiclass:
+            return _manual_calibration_multiclass(model, features, labels, method, num_classes)
         return _manual_calibration(model, features, labels, method)
     try:
         calibrator = CalibratedClassifierCV(model, method=method, cv="prefit")
         calibrator.fit(features, labels)
         return calibrator
     except Exception:
+        if is_multiclass:
+            return _manual_calibration_multiclass(model, features, labels, method, num_classes)
         return _manual_calibration(model, features, labels, method)
 
 
@@ -175,23 +242,33 @@ def train_xgb(
     """Fit an XGBoost classifier and return metrics."""
 
     config = config or XGBConfig()
+    num_classes = int(np.unique(y_train).size)
+    is_multiclass = num_classes > 2
     scale_pos_weight = config.scale_pos_weight
-    if scale_pos_weight is None:
+    if not is_multiclass and scale_pos_weight is None:
         positives = float((y_train == 1).sum())
         negatives = float((y_train == 0).sum())
         if positives > 0:
             scale_pos_weight = negatives / positives
-    model = XGBClassifier(
-        n_estimators=config.n_estimators,
-        max_depth=config.max_depth,
-        learning_rate=config.learning_rate,
-        subsample=config.subsample,
-        colsample_bytree=config.colsample_bytree,
-        objective=config.objective,
-        eval_metric=config.eval_metric,
-        random_state=config.random_state,
-        scale_pos_weight=scale_pos_weight,
-    )
+    objective = config.objective
+    eval_metric = config.eval_metric
+    if is_multiclass:
+        objective = "multi:softprob"
+        eval_metric = "mlogloss"
+    model_kwargs = {
+        "n_estimators": config.n_estimators,
+        "max_depth": config.max_depth,
+        "learning_rate": config.learning_rate,
+        "subsample": config.subsample,
+        "colsample_bytree": config.colsample_bytree,
+        "objective": objective,
+        "eval_metric": eval_metric,
+        "random_state": config.random_state,
+        "scale_pos_weight": scale_pos_weight,
+    }
+    if is_multiclass:
+        model_kwargs["num_class"] = num_classes
+    model = XGBClassifier(**model_kwargs)
     fit_kwargs = {
         "X": X_train,
         "y": y_train,
@@ -212,9 +289,13 @@ def train_xgb(
         )
     model.fit(**fit_kwargs)
     val_proba, _ = predict_xgb(model, X_val)
-    metrics = compute_binary_metrics(y_val, val_proba)
+    if is_multiclass:
+        metrics = compute_multiclass_metrics(y_val, val_proba)
+    else:
+        metrics = compute_binary_metrics(y_val, val_proba)
     metrics["best_iteration"] = int(getattr(model, "best_iteration", -1))
     metrics["best_score"] = float(getattr(model, "best_score", 0.0))
+    metrics["num_classes"] = num_classes
     return model, metrics
 
 

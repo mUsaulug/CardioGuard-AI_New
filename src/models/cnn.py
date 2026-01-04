@@ -54,15 +54,24 @@ class BinaryHead(nn.Module):
         return self.classifier(x).squeeze(-1)
 
 
-class FiveClassHead(nn.Module):
-    """Five-class classification head returning logits for 5 classes."""
+class MultiClassHead(nn.Module):
+    """Multi-class classification head returning logits for each class."""
 
-    def __init__(self, in_features: int) -> None:
+    def __init__(self, in_features: int, num_classes: int) -> None:
         super().__init__()
-        self.classifier = nn.Linear(in_features, 5)
+        if num_classes < 2:
+            raise ValueError("MultiClassHead requires num_classes >= 2.")
+        self.classifier = nn.Linear(in_features, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.classifier(x)
+
+
+class FiveClassHead(MultiClassHead):
+    """Five-class classification head returning logits for 5 classes."""
+
+    def __init__(self, in_features: int) -> None:
+        super().__init__(in_features, num_classes=5)
 
 
 class LocalizationHead(nn.Module):
@@ -77,12 +86,12 @@ class LocalizationHead(nn.Module):
 
 
 class ECGCNN(nn.Module):
-    """Conv1D-based ECG classifier returning a single logit."""
+    """Conv1D-based ECG classifier returning logits."""
 
-    def __init__(self, config: ECGCNNConfig) -> None:
+    def __init__(self, config: ECGCNNConfig, num_classes: int = 1) -> None:
         super().__init__()
         self.backbone = ECGBackbone(config)
-        self.head = BinaryHead(config.num_filters)
+        self.head = build_classification_head(config.num_filters, num_classes=num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass expecting shape (batch, channels, timesteps)."""
@@ -93,3 +102,17 @@ class ECGCNN(nn.Module):
 
 class CNNEncoder(ECGBackbone):
     """Backward-compatible alias for ECGBackbone."""
+
+
+def build_classification_head(in_features: int, num_classes: int) -> nn.Module:
+    """Create a classification head for binary or multi-class logits."""
+    if num_classes == 1:
+        return BinaryHead(in_features)
+    return MultiClassHead(in_features, num_classes=num_classes)
+
+
+def build_sequential_cnn(config: ECGCNNConfig, num_classes: int) -> nn.Sequential:
+    """Build Sequential(backbone, head) for stable checkpoint schemas."""
+    backbone = ECGBackbone(config)
+    head = build_classification_head(config.num_filters, num_classes=num_classes)
+    return nn.Sequential(backbone, head)
