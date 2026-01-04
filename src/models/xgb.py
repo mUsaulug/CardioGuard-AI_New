@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Tuple, Union
 
 import numpy as np
+from sklearn import __version__ as sklearn_version
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
@@ -56,6 +57,38 @@ class ManualCalibratedModel:
             calibrated = self.calibrator.predict(base_proba.reshape(-1, 1))
         calibrated = np.clip(calibrated, 0.0, 1.0)
         return np.column_stack([1 - calibrated, calibrated])
+
+
+def _parse_version(version: str) -> Tuple[int, int, int]:
+    parts = version.split(".")
+    numbers = []
+    for part in parts[:3]:
+        digits = "".join(ch for ch in part if ch.isdigit())
+        numbers.append(int(digits) if digits else 0)
+    while len(numbers) < 3:
+        numbers.append(0)
+    return tuple(numbers)  # type: ignore[return-value]
+
+
+def _prefit_calibration_supported() -> bool:
+    major, minor, _ = _parse_version(sklearn_version)
+    return (major, minor) < (1, 4)
+
+
+def _manual_calibration(
+    model: XGBClassifier,
+    features: np.ndarray,
+    labels: np.ndarray,
+    method: str,
+) -> ManualCalibratedModel:
+    base_proba = model.predict_proba(features)[:, 1]
+    if method == "isotonic":
+        iso = IsotonicRegression(out_of_bounds="clip")
+        iso.fit(base_proba, labels)
+        return ManualCalibratedModel(model, iso)
+    lr = LogisticRegression(solver="lbfgs")
+    lr.fit(base_proba.reshape(-1, 1), labels)
+    return ManualCalibratedModel(model, lr)
 
 
 def _predict_booster_proba(model: Booster, features: np.ndarray) -> np.ndarray:
@@ -122,20 +155,14 @@ def calibrate_xgb(
 ) -> Union[CalibratedClassifierCV, ManualCalibratedModel]:
     """Calibrate XGBoost probabilities using a validation split."""
 
+    if not _prefit_calibration_supported():
+        return _manual_calibration(model, features, labels, method)
     try:
         calibrator = CalibratedClassifierCV(model, method=method, cv="prefit")
         calibrator.fit(features, labels)
         return calibrator
     except Exception:
-        base_proba = model.predict_proba(features)[:, 1]
-        if method == "isotonic":
-            iso = IsotonicRegression(out_of_bounds="clip")
-            iso.fit(base_proba, labels)
-            return ManualCalibratedModel(model, iso)
-        lr = LogisticRegression(solver="lbfgs")
-        lr.fit(base_proba.reshape(-1, 1), labels)
-        return ManualCalibratedModel(model, lr)
-
+        return _manual_calibration(model, features, labels, method)
 
 
 def train_xgb(
