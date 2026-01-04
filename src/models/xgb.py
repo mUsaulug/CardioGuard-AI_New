@@ -20,6 +20,7 @@ import inspect
 import warnings
 
 from xgboost import Booster, DMatrix, XGBClassifier
+from xgboost.callback import EarlyStopping
 
 
 @dataclass
