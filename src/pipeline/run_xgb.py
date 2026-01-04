@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -20,6 +21,7 @@ from src.models.xgb import (
     compute_binary_metrics,
     find_best_threshold,
     predict_xgb,
+    save_xgb,
     train_xgb,
 )
 
@@ -28,13 +30,23 @@ def load_features(path: str | Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray 
     """Load features, labels, and optional ids from a .npz file."""
 
     data = np.load(path)
-    features = data["features"]
-    if "labels" not in data:
+    if "X" in data:
+        features = data["X"]
+    elif "features" in data:
+        features = data["features"]
+    else:
+        raise ValueError(f"Missing features in file: {path}. Expected 'X' or 'features'.")
+
+    if "y" in data:
+        labels = data["y"]
+    elif "labels" in data:
+        labels = data["labels"]
+    else:
         raise ValueError(
             f"Missing labels in features file: {path}. "
             "XGBoost training requires labels in the .npz archive."
         )
-    labels = data["labels"]
+    labels = np.asarray(labels).reshape(-1)
     if labels.size == 0:
         raise ValueError(
             f"Empty labels in features file: {path}. "
@@ -42,6 +54,11 @@ def load_features(path: str | Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray 
         )
     ids = data["ids"] if "ids" in data else None
     return features, labels, ids
+
+
+def set_random_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
 
 
 def evaluate_split(
@@ -73,8 +90,10 @@ def main() -> None:
         default=None,
         help="Optional probability calibration method (uses validation set).",
     )
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
 
+    set_random_seed(args.seed)
     X_train, y_train, _ = load_features(args.train)
     X_val, y_val, _ = load_features(args.val)
     X_test, y_test, _ = load_features(args.test)
@@ -86,7 +105,8 @@ def main() -> None:
         X_val = scaler.transform(X_val)
         X_test = scaler.transform(X_test)
 
-    model, val_metrics = train_xgb(X_train, y_train, X_val, y_val, XGBConfig())
+    config = XGBConfig(random_state=args.seed)
+    model, val_metrics = train_xgb(X_train, y_train, X_val, y_val, config)
     calibrated_model = None
     model_for_eval = model
     if args.calibration is not None:
@@ -126,7 +146,7 @@ def main() -> None:
         json.dump(results, handle, indent=2)
 
     model_path = output_dir / "xgb_model.json"
-    model.save_model(model_path)
+    save_xgb(model, model_path)
     if calibrated_model is not None:
         calibrated_path = output_dir / "xgb_calibrated.joblib"
         joblib.dump(calibrated_model, calibrated_path)
@@ -135,6 +155,23 @@ def main() -> None:
         scaler_path = output_dir / "xgb_scaler.joblib"
         joblib.dump(scaler, scaler_path)
         print(f"Saved XGBoost scaler to: {scaler_path}")
+
+    config_path = output_dir / "xgb_config.json"
+    with config_path.open("w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "train_path": str(args.train),
+                "val_path": str(args.val),
+                "test_path": str(args.test),
+                "scaling": not args.no_scale_features,
+                "calibration": args.calibration,
+                "random_seed": args.seed,
+                "xgb_config": config.__dict__,
+            },
+            handle,
+            indent=2,
+        )
+    print(f"Saved XGBoost config to: {config_path}")
 
     print(json.dumps(results, indent=2))
     print(f"Saved XGBoost model to: {model_path}")

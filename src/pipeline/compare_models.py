@@ -28,6 +28,7 @@ from src.data.signals import SignalDataset, compute_channel_stats_streaming, nor
 from src.data.splits import get_standard_split
 from src.models.cnn import ECGCNN, ECGCNNConfig
 from src.models.xgb import load_xgb, predict_xgb
+from src.utils.checkpoints import load_checkpoint_state_dict
 
 
 # ============================================================================
@@ -348,24 +349,7 @@ def main() -> None:
     cnn_model = ECGCNN(cnn_config)
     
     if args.cnn_path.exists():
-        checkpoint = torch.load(args.cnn_path, map_location=args.device)
-        # Handle checkpoint dict if present
-        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-            state_dict = checkpoint["model_state_dict"]
-        else:
-            state_dict = checkpoint
-            
-        # Remap keys if needed (0. -> backbone., 1. -> head.)
-        new_state_dict = {}
-        for k, v in state_dict.items():
-            if k.startswith("0."):
-                new_state_dict[k.replace("0.", "backbone.", 1)] = v
-            elif k.startswith("1."):
-                new_state_dict[k.replace("1.", "head.", 1)] = v
-            else:
-                new_state_dict[k] = v
-        state_dict = new_state_dict
-            
+        state_dict = load_checkpoint_state_dict(args.cnn_path, args.device)
         cnn_model.load_state_dict(state_dict)
     else:
         print(f"Warning: CNN checkpoint not found at {args.cnn_path}")

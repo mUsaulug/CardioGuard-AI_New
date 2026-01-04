@@ -24,10 +24,13 @@ from torch.utils.data import DataLoader
 from src.config import get_default_config
 from src.data.labels import add_binary_mi_labels
 from src.data.loader import load_ptbxl_metadata, load_scp_statements
-from src.data.signals import SignalDataset
+from src.data.signals import SignalDataset, compute_channel_stats_streaming, normalize_with_stats
 from src.data.splits import get_standard_split
 from src.models.cnn import ECGCNN, ECGCNNConfig
-from src.models.xgb import load_xgb
+import joblib
+
+from src.models.xgb import ManualCalibratedModel, load_xgb
+from src.utils.checkpoints import load_checkpoint_state_dict
 from src.xai.gradcam import GradCAM
 from src.xai.shap_xgb import explain_xgb, plot_shap_summary, plot_shap_waterfall
 from src.xai.visualize import plot_gradcam_heatmap, plot_lead_attention, plot_ecg_with_prediction
@@ -38,24 +41,8 @@ def load_cnn_model(checkpoint_path: Path, device: str) -> ECGCNN:
     config = ECGCNNConfig()
     model = ECGCNN(config)
     
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    
-    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-        state_dict = checkpoint["model_state_dict"]
-    else:
-        state_dict = checkpoint
-    
-    # Remap keys if saved with nn.Sequential
-    new_state_dict = {}
-    for k, v in state_dict.items():
-        if k.startswith("0."):
-            new_state_dict[k.replace("0.", "backbone.", 1)] = v
-        elif k.startswith("1."):
-            new_state_dict[k.replace("1.", "head.", 1)] = v
-        else:
-            new_state_dict[k] = v
-    
-    model.load_state_dict(new_state_dict)
+    state_dict = load_checkpoint_state_dict(checkpoint_path, device)
+    model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
     
@@ -79,11 +66,30 @@ def get_sample_data(config, num_samples: int = 5):
     norm_samples = test_df[test_df["label_mi_norm"] == 0].head(num_samples // 2 + 1)
     sample_df = mi_samples._append(norm_samples).head(num_samples)
     
+    train_indices, _, _ = get_standard_split(df)
+    valid_train_indices = np.intersect1d(train_indices, df.index)
+    mean, std = compute_channel_stats_streaming(
+        df.loc[valid_train_indices],
+        base_path=config.data_root,
+        filename_column=config.filename_column,
+        batch_size=128,
+        progress=False,
+        expected_channels=12,
+    )
+
+    def normalize(signal: np.ndarray) -> np.ndarray:
+        mean_flat = mean.reshape(-1)
+        std_flat = std.reshape(-1)
+        normalized = normalize_with_stats(signal, mean_flat, std_flat)
+        return np.transpose(normalized, (1, 0))
+
     dataset = SignalDataset(
         df=sample_df,
         base_path=config.data_root,
         filename_column=config.filename_column,
         label_column="label_mi_norm",
+        transform=normalize,
+        expected_channels=12,
     )
     
     return dataset, sample_df
@@ -93,13 +99,31 @@ def main():
     parser = argparse.ArgumentParser(description="Generate XAI visualizations")
     parser.add_argument("--cnn-path", type=Path, default=Path("checkpoints/ecgcnn.pt"))
     parser.add_argument("--xgb-path", type=Path, default=Path("logs/xgb/xgb_model.json"))
+    parser.add_argument("--xgb-dir", type=Path, default=Path("logs/xgb"))
     parser.add_argument("--output-dir", type=Path, default=Path("reports/xai"))
     parser.add_argument("--num-samples", type=int, default=4)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=None,
+        help="Override PTB-XL root directory (defaults to ./physionet.org/files/ptb-xl/1.0.3).",
+    )
+    parser.add_argument(
+        "--sampling-rate",
+        type=int,
+        choices=[100, 500],
+        default=None,
+        help="Override sampling rate for records100/records500.",
+    )
     args = parser.parse_args()
     
     # Setup
     config = get_default_config()
+    if args.data_root is not None:
+        config.data_root = args.data_root
+    if args.sampling_rate is not None:
+        config.sampling_rate = args.sampling_rate
     args.output_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"Device: {args.device}")
@@ -120,6 +144,18 @@ def main():
     print("\n1. Loading models...")
     cnn_model = load_cnn_model(args.cnn_path, args.device)
     xgb_model = load_xgb(args.xgb_path)
+    calibrated_path = args.xgb_dir / "xgb_calibrated.joblib"
+    if calibrated_path.exists():
+        xgb_calibrated = joblib.load(calibrated_path)
+        print(f"   Loaded calibrated XGBoost model from {calibrated_path}")
+    else:
+        xgb_calibrated = xgb_model
+    scaler_path = args.xgb_dir / "xgb_scaler.joblib"
+    if scaler_path.exists():
+        xgb_scaler = joblib.load(scaler_path)
+        print(f"   Loaded XGBoost scaler from {scaler_path}")
+    else:
+        xgb_scaler = None
     print("   Models loaded successfully!")
     
     # Setup Grad-CAM
@@ -161,17 +197,22 @@ def main():
     
     # Generate SHAP values
     print("\n4. Computing SHAP values...")
-    shap_result = explain_xgb(xgb_model, embeddings)
+    if xgb_scaler is not None:
+        shap_embeddings = xgb_scaler.transform(embeddings)
+    else:
+        shap_embeddings = embeddings
+    shap_model = getattr(xgb_calibrated, "base_model", xgb_model)
+    shap_result = explain_xgb(shap_model, shap_embeddings)
     shap_values = shap_result["shap_values"]
     base_value = shap_result["base_value"]
     print(f"   SHAP values shape: {np.array(shap_values).shape}")
     
     # Generate SHAP summary plot
     print("\n5. Generating SHAP summary plot...")
-    feature_names = [f"CNN_Feature_{i}" for i in range(embeddings.shape[1])]
+    feature_names = [f"CNN_Feature_{i}" for i in range(shap_embeddings.shape[1])]
     plot_shap_summary(
         shap_values,
-        embeddings,
+        shap_embeddings,
         feature_names=feature_names,
         save_path=args.output_dir / "shap_summary.png",
         title="XGBoost Feature Importance (CNN Embeddings)",
@@ -198,6 +239,13 @@ def main():
             logits = cnn_model(signal_tensor)
             prob = torch.sigmoid(logits).item()
         print(f"     CNN Prediction: {'MI' if prob >= 0.5 else 'NORM'} ({prob:.2%})")
+
+        with torch.no_grad():
+            xgb_embedding = cnn_model.backbone(signal_tensor).cpu().numpy()
+        if xgb_scaler is not None:
+            xgb_embedding = xgb_scaler.transform(xgb_embedding)
+        xgb_prob = xgb_calibrated.predict_proba(xgb_embedding)[0, 1]
+        print(f"     XGB Prediction: {'MI' if xgb_prob >= 0.5 else 'NORM'} ({xgb_prob:.2%})")
         
         # Grad-CAM
         cam = gradcam.generate(signal_tensor)
@@ -232,7 +280,7 @@ def main():
             shap_values,
             base_value,
             sample_idx=i,
-            features=embeddings,
+            features=shap_embeddings,
             feature_names=feature_names,
             save_path=args.output_dir / f"shap_waterfall_sample_{i+1}_id{ecg_id}.png",
             title=f"SHAP Explanation (ECG ID: {ecg_id})",

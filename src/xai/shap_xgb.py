@@ -8,11 +8,11 @@ from typing import Any, Dict, List, Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import shap
-from xgboost import XGBClassifier
+from xgboost import Booster, XGBClassifier
 
 
 def explain_xgb(
-    model: XGBClassifier,
+    model: XGBClassifier | Booster,
     X: np.ndarray,
     max_samples: int = 1000,
 ) -> Dict[str, Any]:
@@ -213,4 +213,3 @@ def get_top_features(
         {"feature": feature_names[idx], "importance": float(mean_shap[idx])}
         for idx in sorted_idx
     ]
-
