@@ -1,0 +1,13 @@
+{
+  "ecg_id": 9,
+  "superclass_pathologies": [],
+  "diagnostic_superclass": [
+    "NORM"
+  ],
+  "y_multi": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ]
+}

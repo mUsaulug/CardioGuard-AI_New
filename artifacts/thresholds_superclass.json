@@ -1,0 +1,50 @@
+{
+  "thresholds": {
+    "MI": 0.5,
+    "STTC": 0.5,
+    "CD": 0.5,
+    "HYP": 0.5
+  },
+  "details": {
+    "MI": {
+      "threshold": 0.01,
+      "method": "F_beta (beta=2.0) + recall_min=0.9",
+      "score": 0.7827630729502905,
+      "f1_at_threshold": 0.4192546583850932,
+      "recall_at_threshold": 1.0,
+      "support": 540
+    },
+    "STTC": {
+      "threshold": 0.41844362020492554,
+      "method": "Youden_J",
+      "score": 0.721851949036415,
+      "f1_at_threshold": 0.7274155538098979,
+      "recall_at_threshold": 0.8990291262135922,
+      "support": 515
+    },
+    "CD": {
+      "threshold": 0.4200475513935089,
+      "method": "Youden_J",
+      "score": 0.6783565050000541,
+      "f1_at_threshold": 0.7245841035120147,
+      "recall_at_threshold": 0.795131845841785,
+      "support": 493
+    },
+    "HYP": {
+      "threshold": 0.25846925377845764,
+      "method": "Youden_J",
+      "score": 0.6482077062386811,
+      "f1_at_threshold": 0.487360970677452,
+      "recall_at_threshold": 0.8992537313432836,
+      "support": 268
+    }
+  },
+  "ensemble_weight": 0.5,
+  "mi_beta": 2.0,
+  "class_order": [
+    "MI",
+    "STTC",
+    "CD",
+    "HYP"
+  ]
+}

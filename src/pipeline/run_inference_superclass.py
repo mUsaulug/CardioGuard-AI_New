@@ -18,15 +18,26 @@ from typing import Dict, Any, Optional, Tuple
 import numpy as np
 import torch
 import joblib
+from sklearn.isotonic import IsotonicRegression  # Import needed for instance check
 
-from src.models.cnn import ECGCNNConfig, ECGBackbone
+from src.models.cnn import ECGCNNConfig, ECGBackbone, ECGCNN
 from src.pipeline.train_superclass_cnn import MultiLabelECGCNN, SUPERCLASS_LABELS
+from src.pipeline.train_mi_localization import MI_LOCALIZATION_REGIONS
+from src.xai.gradcam import generate_relevant_gradcam
+from src.xai.shap_ovr import explain_single_sample
+from src.xai.unified import UnifiedExplainer
+from src.xai.unified import UnifiedExplainer
+from src.xai.sanity import XAISanityChecker
+from src.xai.visualize import plot_12lead_gradcam
 
 
 # Default paths
 DEFAULT_CNN_CHECKPOINT = Path("checkpoints/ecgcnn_superclass.pt")
 DEFAULT_XGB_DIR = Path("logs/xgb_superclass")
+DEFAULT_XGB_DIR = Path("logs/xgb_superclass")
 DEFAULT_THRESHOLDS = Path("artifacts/thresholds_superclass.json")
+DEFAULT_LOCALIZATION_CHECKPOINT = Path("checkpoints/ecgcnn_localization.pt")
+DEFAULT_LOCALIZATION_THRESHOLDS = None # Use default 0.5 for now, or implement optimization later
 
 
 def get_primary_label(probs: Dict[str, float], thresholds: Dict[str, float]) -> Tuple[str, float]:
@@ -62,6 +73,23 @@ def load_cnn_model(checkpoint_path: Path, device: torch.device) -> MultiLabelECG
     
     config = ECGCNNConfig()
     model = MultiLabelECGCNN(config)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
+    model.to(device)
+    
+    return model
+
+
+def load_localization_model(checkpoint_path: Path, device: torch.device) -> nn.Module:
+    """Load trained MI localization model."""
+    if not checkpoint_path.exists():
+        return None
+        
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    
+    # Config must match training (64 filters, 0.5 dropout)
+    config = ECGCNNConfig(num_filters=64, dropout=0.5)
+    model = ECGCNN(config, num_classes=len(MI_LOCALIZATION_REGIONS))
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
     model.to(device)
@@ -155,8 +183,12 @@ def predict(
     cnn_model: MultiLabelECGCNN,
     xgb_data: Dict[str, Any],
     thresholds: Dict[str, float],
+    localization_model: Optional[nn.Module],
     device: torch.device,
     ensemble_weight: float = 0.5,
+    explain: bool = False,
+    sanity_check: bool = False,
+    save_plot: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Run multi-label prediction.
@@ -203,7 +235,14 @@ def predict(
                 # Calibrate if calibrator available
                 if cls in xgb_data["calibrators"]:
                     calibrator = xgb_data["calibrators"][cls]
-                    prob = calibrator.predict_proba([[raw_prob]])[0, 1]
+                    
+                    if isinstance(calibrator, IsotonicRegression):
+                        # IsotonicRegressor only has predict(), no predict_proba
+                        # And it expects 1D array
+                        prob = calibrator.predict([raw_prob])[0]
+                    else:
+                        # LogisticRegression (Platt)
+                        prob = calibrator.predict_proba([[raw_prob]])[0, 1]
                 else:
                     prob = raw_prob
                 
@@ -231,6 +270,113 @@ def predict(
     # NORM probability (derived)
     norm_prob = 1.0 - max(ensemble_probs.values())
     
+    # ---------------------------------------------------------
+    # MI Localization (Conditional)
+    # ---------------------------------------------------------
+    localization_result = None
+    if localization_model and "MI" in predicted_labels:
+        with torch.no_grad():
+            signal_tensor = torch.as_tensor(signal, dtype=torch.float32).unsqueeze(0).to(device)
+            loc_logits = localization_model(signal_tensor)
+            loc_probs = torch.sigmoid(loc_logits).cpu().numpy()[0]
+            
+        localization_result = {
+            region: float(prob)
+            for region, prob in zip(MI_LOCALIZATION_REGIONS, loc_probs)
+        }
+        # Filter by threshold (default 0.5)
+        detected_regions = [
+            region for region, prob in localization_result.items()
+            if prob >= 0.5
+        ]
+        localization_result["predicted_regions"] = detected_regions
+    
+    # ---------------------------------------------------------
+    # XAI: Unified Explanation & Sanity Checks
+    # ---------------------------------------------------------
+    explanation_result = None
+    sanity_result = None
+    
+    if explain:
+        # 1. Grad-CAM (Visual)
+        # Target layer: usually the last conv block of the backbone
+        # We need to access it dynamically. For ECGBackbone, it's typically 'blocks'[-1]
+        target_layer = cnn_model.backbone.features[-3] 
+        gradcam_res = generate_relevant_gradcam(
+            cnn_model, target_layer, signal_tensor, cnn_probs_dict, thresholds, top_k=2
+        )
+        
+        # 2. SHAP (Feature)
+        # Explain relevance for classes that have high probability or primary label
+        relevant_for_shap = list(gradcam_res.keys())
+        if primary_label != "NORM" and primary_label not in relevant_for_shap:
+            relevant_for_shap.append(primary_label)
+            
+        shap_res = {}
+        if xgb_data["models"] and relevant_for_shap:
+            # We need embeddings for SHAP (1, 64)
+            # embeddings was computed above
+            shap_res = explain_single_sample(
+                xgb_data["models"], 
+                embeddings, # (1, 64)
+                relevant_classes=relevant_for_shap
+            )
+
+        # 3. Unified Synthesis
+        unifier = UnifiedExplainer()
+        explanation_result = unifier.synthesize(
+            gradcam_res, 
+            shap_res, 
+            ensemble_probs, 
+            ensemble_weight
+        )
+        # Add raw results for external tools (like comprehensive test)
+        explanation_result["raw_gradcam"] = gradcam_res
+        explanation_result["raw_shap"] = shap_res
+        
+        # 4. Sanity Checks (Optional)
+        if sanity_check:
+            # We need a wrapper function for XAISanityChecker that matches signature (model, input) -> explanation
+            # For simplicity, we test Grad-CAM stability on the primary label
+            class_idx = SUPERCLASS_LABELS.index(primary_label) if primary_label != "NORM" else 0
+            
+            def explanation_func(m, inp):
+                # Simple Grad-CAM generation for sanity check
+                from src.xai.gradcam import GradCAM
+                gcam = GradCAM(m, m.backbone.features[-3])
+                return gcam.generate(inp, class_index=class_idx)
+                
+            checker = XAISanityChecker(cnn_model)
+            sanity_result = checker.run_checks(
+                signal_tensor, 
+                gradcam_res.get(primary_label) if gradcam_res else None, 
+                explanation_func
+            )
+            explanation_result["sanity_check"] = sanity_result
+            
+        # 5. Visualization (Optional)
+        # 5. Visualization (Optional)
+        if save_plot:
+            from src.xai.visualize import plot_12lead_gradcam, plot_ecg_with_localization
+            
+            if gradcam_res:
+                plot_12lead_gradcam(
+                    signal, 
+                    gradcam_res, 
+                    save_plot, 
+                    title=f"Prediction: {primary_label} ({primary_confidence:.2f})"
+                )
+                
+            if localization_result:
+                # Save as separate file: original_name_loc.png
+                loc_plot_path = save_plot.parent / f"{save_plot.stem}_loc{save_plot.suffix}"
+                plot_ecg_with_localization(
+                    signal,
+                    localization_result,
+                    loc_plot_path,
+                    title=f"MI Localization: {primary_label}"
+                )
+
     return {
         "mode": "multilabel-superclass",
         "multi": {
@@ -243,6 +389,8 @@ def predict(
             "confidence": primary_confidence,
             "rule": "MI-first-then-priority",
         },
+        "mi_localization": localization_result,
+        "explanation": explanation_result,
         "sources": {
             "cnn": cnn_probs_dict,
             "xgb": xgb_probs_dict if xgb_probs_dict else None,
@@ -260,8 +408,12 @@ def main():
     parser.add_argument("--cnn-checkpoint", type=Path, default=DEFAULT_CNN_CHECKPOINT)
     parser.add_argument("--xgb-dir", type=Path, default=DEFAULT_XGB_DIR)
     parser.add_argument("--thresholds", type=Path, default=DEFAULT_THRESHOLDS)
+    parser.add_argument("--localization-checkpoint", type=Path, default=DEFAULT_LOCALIZATION_CHECKPOINT)
     parser.add_argument("--ensemble-weight", type=float, default=0.5,
                         help="Weight for CNN (1-weight for XGB)")
+    parser.add_argument("--explain", action="store_true", help="Generate Unified XAI explanation")
+    parser.add_argument("--sanity-check", action="store_true", help="Run XAI sanity checks")
+    parser.add_argument("--save-plot", type=Path, default=None, help="Path to save explanation plot")
     parser.add_argument("--device", type=str, default=None)
     
     args = parser.parse_args()
@@ -280,6 +432,12 @@ def main():
     xgb_data = load_xgb_models(args.xgb_dir)
     thresholds = load_thresholds(args.thresholds)
     
+    localization_model = load_localization_model(args.localization_checkpoint, device)
+    if localization_model:
+        print("Loaded MI Localization model.")
+    else:
+        print("Warning: MI Localization model not found, skipping localization.")
+    
     # Load signal
     print(f"Loading signal from {args.input}...")
     signal = load_ecg_signal(args.input)
@@ -287,8 +445,11 @@ def main():
     # Predict
     print("Running inference...")
     result = predict(
-        signal, cnn_model, xgb_data, thresholds, device,
+        signal, cnn_model, xgb_data, thresholds, localization_model, device,
         ensemble_weight=args.ensemble_weight,
+        explain=args.explain,
+        sanity_check=args.sanity_check,
+        save_plot=args.save_plot,
     )
     
     # Add metadata
@@ -317,6 +478,8 @@ def main():
     print("=" * 60)
     print(f"Primary: {result['primary']['label']} ({result['primary']['confidence']:.3f})")
     print(f"Multi-label: {result['multi']['predicted_labels']}")
+    if result.get("mi_localization"):
+        print(f"Loc: {result['mi_localization']['predicted_regions']}")
 
 
 if __name__ == "__main__":

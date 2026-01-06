@@ -231,6 +231,45 @@ def evaluate_ovr(
     return results
 
 
+def load_xgb_ovr_models(output_dir: Path) -> CalibratedOVRModel:
+    """
+    Load trained OVR models and return CalibratedOVRModel.
+    
+    Args:
+        output_dir: Directory containing trained models
+        
+    Returns:
+        CalibratedOVRModel instance
+    """
+    models = {}
+    calibrators = {}
+    
+    # Load scaler
+    scaler_path = output_dir / "scaler.joblib"
+    if not scaler_path.exists():
+        raise FileNotFoundError(f"Scaler not found at {scaler_path}")
+    scaler = joblib.load(scaler_path)
+    
+    for cls in SUPERCLASS_LABELS:
+        model_dir = output_dir / cls
+        
+        # Load model
+        model = XGBClassifier()
+        try:
+            model.load_model(model_dir / "xgb_model.json")
+            models[cls] = model
+        except Exception as e:
+            print(f"Warning: Could not load model for {cls}: {e}")
+            continue
+        
+        # Load calibrator
+        cal_path = model_dir / "calibrator.joblib"
+        if cal_path.exists():
+            calibrators[cls] = joblib.load(cal_path)
+            
+    return CalibratedOVRModel(models, calibrators, scaler, SUPERCLASS_LABELS)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train XGBoost OVR for Superclass")
     parser.add_argument("--train", default="features_out/train_superclass.npz",
@@ -308,7 +347,8 @@ def main():
         # Save model
         model_dir = output_dir / cls
         model_dir.mkdir(parents=True, exist_ok=True)
-        model.save_model(model_dir / "xgb_model.json")
+        # Use get_booster().save_model() to avoid sklearn metadata issues
+        model.get_booster().save_model(model_dir / "xgb_model.json")
         
         if cls in calibrators:
             joblib.dump(calibrators[cls], model_dir / "calibrator.joblib")

@@ -28,11 +28,11 @@ class ECGBackbone(nn.Module):
         self.features = nn.Sequential(
             nn.Conv1d(config.in_channels, config.num_filters, config.kernel_size, padding=padding),
             nn.BatchNorm1d(config.num_filters),
-            nn.ReLU(inplace=True),
+            nn.ReLU(inplace=False),
             nn.Dropout(config.dropout),
             nn.Conv1d(config.num_filters, config.num_filters, config.kernel_size, padding=padding),
             nn.BatchNorm1d(config.num_filters),
-            nn.ReLU(inplace=True),
+            nn.ReLU(inplace=False),
             nn.Dropout(config.dropout),
             nn.AdaptiveAvgPool1d(1),
         )

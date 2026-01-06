@@ -1,0 +1,76 @@
+{
+  "mode": "multilabel-superclass",
+  "multi": {
+    "probabilities": {
+      "MI": 0.5210504084825516,
+      "STTC": 0.4701097011566162,
+      "CD": 0.2720937505364418,
+      "HYP": 0.10513977333903313,
+      "NORM": 0.4789495915174484
+    },
+    "predicted_labels": [
+      "MI",
+      "STTC"
+    ],
+    "thresholds": {
+      "MI": 0.01,
+      "STTC": 0.41844362020492554,
+      "CD": 0.4200475513935089,
+      "HYP": 0.25846925377845764
+    }
+  },
+  "primary": {
+    "label": "MI",
+    "confidence": 0.5210504084825516,
+    "rule": "MI-first-then-priority"
+  },
+  "mi_localization": {
+    "AMI": 0.1981579214334488,
+    "ASMI": 0.013634135015308857,
+    "ALMI": 0.02831844985485077,
+    "IMI": 0.9788757562637329,
+    "LMI": 0.3755301833152771,
+    "predicted_regions": [
+      "IMI"
+    ]
+  },
+  "explanation": {
+    "narrative": "Diagnosis: **MI** (52.1%).\n\nReasoning is primarily driven by **CNN (Visual)** analysis.\n\u2705 Multi-modal evidence is coherent.\n\n**Evidence:**\n- Visual: MI: High activation around 5330.0s.\n- Visual: STTC: High activation around 4540.0s.\n- Clinical: MI: Driven by key statistical features consistent with pathology.\n- Clinical: STTC: Driven by key statistical features consistent with pathology.\n",
+    "coherence_score": 0.85,
+    "dominant_source": "CNN (Visual)",
+    "visual_summary": [
+      "MI: High activation around 5330.0s.",
+      "STTC: High activation around 4540.0s."
+    ],
+    "feature_summary": [
+      "MI: Driven by key statistical features consistent with pathology.",
+      "STTC: Driven by key statistical features consistent with pathology."
+    ],
+    "conflicts": []
+  },
+  "sources": {
+    "cnn": {
+      "MI": 0.690248966217041,
+      "STTC": 0.6287440061569214,
+      "CD": 0.40572595596313477,
+      "HYP": 0.1928376853466034
+    },
+    "xgb": {
+      "MI": 0.35185185074806213,
+      "STTC": 0.31147539615631104,
+      "CD": 0.13846154510974884,
+      "HYP": 0.01744186133146286
+    },
+    "ensemble": {
+      "MI": 0.5210504084825516,
+      "STTC": 0.4701097011566162,
+      "CD": 0.2720937505364418,
+      "HYP": 0.10513977333903313
+    }
+  },
+  "versions": {
+    "cnn_checkpoint": "checkpoints\\ecgcnn_superclass.pt",
+    "xgb_dir": "logs\\xgb_superclass",
+    "thresholds_file": "artifacts\\thresholds_superclass.json"
+  }
+}

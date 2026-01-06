@@ -1,0 +1,10 @@
+Diagnosis: **MI** (69.8%).
+
+Reasoning is primarily driven by **CNN (Visual)** analysis.
+✅ Multi-modal evidence is coherent.
+
+**Evidence:**
+- Visual: MI: High activation around 3040.0s.
+- Visual: STTC: High activation around 3090.0s.
+- Clinical: MI: Driven by key statistical features consistent with pathology.
+- Clinical: STTC: Driven by key statistical features consistent with pathology.

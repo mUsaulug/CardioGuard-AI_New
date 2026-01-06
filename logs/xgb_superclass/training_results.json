@@ -1,0 +1,86 @@
+{
+  "class_order": [
+    "MI",
+    "STTC",
+    "CD",
+    "HYP"
+  ],
+  "calibration_method": "isotonic",
+  "training_metrics": [
+    {
+      "class": "MI",
+      "train_samples": 17388,
+      "train_positive": 4369,
+      "val_samples": 2180,
+      "val_positive": 540,
+      "scale_pos_weight": 2.979858160018921,
+      "val_auroc": 0.9085456187895213,
+      "val_auprc": 0.790630277114341,
+      "val_f1": 0.7082251082251082
+    },
+    {
+      "class": "STTC",
+      "train_samples": 17388,
+      "train_positive": 4078,
+      "val_samples": 2180,
+      "val_positive": 515,
+      "scale_pos_weight": 3.263854742050171,
+      "val_auroc": 0.9190063850258025,
+      "val_auprc": 0.7620910340671752,
+      "val_f1": 0.7248322147651006
+    },
+    {
+      "class": "CD",
+      "train_samples": 17388,
+      "train_positive": 3900,
+      "val_samples": 2180,
+      "val_positive": 493,
+      "scale_pos_weight": 3.4584615230560303,
+      "val_auroc": 0.8998558358813551,
+      "val_auprc": 0.7972726757822427,
+      "val_f1": 0.7185185185185186
+    },
+    {
+      "class": "HYP",
+      "train_samples": 17388,
+      "train_positive": 2115,
+      "val_samples": 2180,
+      "val_positive": 268,
+      "scale_pos_weight": 7.221276760101318,
+      "val_auroc": 0.895495066508462,
+      "val_auprc": 0.630349680783058,
+      "val_f1": 0.5800604229607251
+    }
+  ],
+  "test_metrics": {
+    "per_class": {
+      "MI": {
+        "support": 550,
+        "f1": 0.6967615309126595,
+        "auroc": 0.9024192747143567,
+        "auprc": 0.772584209630877
+      },
+      "STTC": {
+        "support": 506,
+        "f1": 0.7126193001060446,
+        "auroc": 0.921777814656996,
+        "auprc": 0.770798006645811
+      },
+      "CD": {
+        "support": 496,
+        "f1": 0.6895761741122566,
+        "auroc": 0.8881398039104133,
+        "auprc": 0.76029779841848
+      },
+      "HYP": {
+        "support": 261,
+        "f1": 0.5762004175365344,
+        "auroc": 0.8868356369335992,
+        "auprc": 0.6075393539403752
+      }
+    },
+    "macro_auroc": 0.8997931325538413,
+    "macro_auprc": 0.7278048421588857
+  },
+  "seed": 42
+}

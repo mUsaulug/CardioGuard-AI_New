@@ -79,18 +79,24 @@ class UnifiedExplainer:
         }
 
     def _extract_visual_evidence(self, gradcam_result: Dict[str, Any]) -> List[str]:
-        """Extract top leads and time regions from Grad-CAM."""
+        """Extract visual evidence from Grad-CAM."""
         evidence = []
         if not gradcam_result:
             return ["No significant visual activation."]
             
         for cls, data in gradcam_result.items():
-            # data is a list of (heatmap, label) tuples usually, 
-            # or a structured dict if adapted.
-            # Assuming our updated Grad-CAM returns structured info:
-            top_leads = data.get("top_leads", [])[:2] # Top 2 leads
-            time_focus = data.get("time_focus", "unknown")
-            evidence.append(f"{cls}: Focused on {', '.join(top_leads)} during {time_focus}")
+            # data is numpy array (timesteps,)
+            if isinstance(data, np.ndarray):
+                # Find peak activation time
+                peak_time = np.argmax(data)
+                duration = len(data)
+                # Helper to describe time in ECG terms (0-10s)
+                time_sec = (peak_time / duration) * 10.0
+                evidence.append(f"{cls}: High activation around {time_sec:.1f}s.")
+            elif isinstance(data, dict):
+                top_leads = data.get("top_leads", [])[:2] # Top 2 leads
+                time_focus = data.get("time_focus", "unknown")
+                evidence.append(f"{cls}: Focused on {', '.join(top_leads)} during {time_focus}")
             
         return evidence
 
