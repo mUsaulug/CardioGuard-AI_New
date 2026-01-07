@@ -6,3 +6,6 @@ xgboost
 wfdb
 tabulate
 tqdm
+shap
+matplotlib
+scipy

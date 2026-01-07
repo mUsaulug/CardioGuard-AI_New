@@ -1,0 +1,2 @@
+sample_id,pred_class,pred_proba,true_label,sanity_status,passed_checks
+test_mi_sample,MI,0.65229607,,SKIPPED,0

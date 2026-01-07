@@ -1,0 +1,22 @@
+{
+  "run_id": "20260107_212305__7cde31e__ecgcnn__multiclass",
+  "task": "multiclass",
+  "model_id": "ecgcnn_superclass",
+  "xgb_id": "xgb_superclass",
+  "baseline_source": "zeros",
+  "git_sha": "7cde31e",
+  "start_time": "2026-01-07T18:23:05.710558Z",
+  "end_time": "2026-01-07T18:23:07.907932Z",
+  "duration_seconds": 2.197374,
+  "n_samples": 1,
+  "n_reliable_explanations": 0,
+  "reliability_rate": 0.0,
+  "accuracy": 0.0,
+  "files": {
+    "cards": "cards.jsonl",
+    "tables": "tables/sample_summary.csv",
+    "tensors": "tensors/",
+    "visuals": "visuals/",
+    "narratives": "text/"
+  }
+}

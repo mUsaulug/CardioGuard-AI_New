@@ -36,7 +36,7 @@ from src.data.mi_localization import (
 )
 from src.data.splits import get_standard_split
 from src.models.cnn import ECGCNNConfig, ECGCNN
-from src.pipeline.train_superclass_cnn import MultiLabelECGDataset
+from src.pipeline.training.train_superclass_cnn import MultiLabelECGDataset
 
 class MILocalizationDataset(torch.utils.data.Dataset):
     def __init__(self, df, base_path, filename_col):

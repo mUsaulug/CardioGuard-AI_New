@@ -128,7 +128,7 @@ class AppState:
         
         # Load CNN
         if cnn_checkpoint.exists():
-            from src.pipeline.train_superclass_cnn import MultiLabelECGCNN
+            from src.pipeline.training.train_superclass_cnn import MultiLabelECGCNN
             from src.models.cnn import ECGCNNConfig
             
             checkpoint = torch.load(cnn_checkpoint, map_location=device)

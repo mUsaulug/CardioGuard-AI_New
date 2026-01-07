@@ -18,8 +18,8 @@ from src.config import PTBXLConfig, get_default_config
 from src.data.signals import SignalDataset, compute_channel_stats_streaming, normalize_with_stats
 from src.models.cnn import ECGCNNConfig, build_multitask_cnn, build_sequential_cnn
 from src.models.trainer import train_one_epoch, train_one_epoch_multitask, validate, validate_multitask
-from src.pipeline.data_pipeline import prepare_splits
-from src.pipeline.data_pipeline import ECGDatasetTorch
+from src.pipeline.core.data_pipeline import prepare_splits
+from src.pipeline.core.data_pipeline import ECGDatasetTorch
 
 
 def set_random_seed(seed: int) -> None:

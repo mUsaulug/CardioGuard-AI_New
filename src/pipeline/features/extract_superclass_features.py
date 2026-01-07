@@ -25,7 +25,7 @@ from src.data.loader import load_ptbxl_metadata, load_scp_statements
 from src.data.labels_superclass import add_superclass_labels_derived, PATHOLOGY_CLASSES
 from src.data.splits import get_standard_split, verify_no_patient_leakage
 from src.data.signals import SignalDataset, compute_channel_stats_streaming, normalize_with_stats
-from src.pipeline.train_superclass_cnn import (
+from src.pipeline.training.train_superclass_cnn import (
     MultiLabelECGCNN, 
     MultiLabelECGDataset, 
     SUPERCLASS_LABELS,

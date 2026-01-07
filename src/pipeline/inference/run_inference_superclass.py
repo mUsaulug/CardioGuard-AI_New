@@ -22,8 +22,8 @@ import joblib
 from sklearn.isotonic import IsotonicRegression  # Import needed for instance check
 
 from src.models.cnn import ECGCNNConfig, ECGBackbone, ECGCNN
-from src.pipeline.train_superclass_cnn import MultiLabelECGCNN, SUPERCLASS_LABELS
-from src.pipeline.train_mi_localization import MI_LOCALIZATION_REGIONS
+from src.pipeline.training.train_superclass_cnn import MultiLabelECGCNN, SUPERCLASS_LABELS
+from src.pipeline.training.train_mi_localization import MI_LOCALIZATION_REGIONS
 from src.xai.gradcam import generate_relevant_gradcam
 from src.xai.shap_ovr import explain_single_sample
 from src.xai.unified import UnifiedExplainer

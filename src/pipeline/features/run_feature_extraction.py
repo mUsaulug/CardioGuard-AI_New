@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 from src.config import get_default_config
 from src.features.extract_cnn_features import extract_cnn_feature_splits
 from src.models.cnn import ECGCNN, ECGCNNConfig
-from src.pipeline.data_pipeline import ECGDatasetTorch, build_datasets
+from src.pipeline.core.data_pipeline import ECGDatasetTorch, build_datasets
 from src.utils.checkpoints import load_checkpoint_state_dict
 
 

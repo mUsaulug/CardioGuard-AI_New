@@ -31,7 +31,7 @@ import numpy as np
 import torch
 
 from src.models.cnn import ECGCNNConfig, ECGCNN, MultiTaskECGCNN
-from src.pipeline.train_superclass_cnn import MultiLabelECGCNN, SUPERCLASS_LABELS
+from src.pipeline.training.train_superclass_cnn import MultiLabelECGCNN, SUPERCLASS_LABELS
 from src.pipeline.run_inference_superclass import (
     load_cnn_model as load_superclass_cnn_model, load_xgb_models, load_thresholds, load_ecg_signal,
     DEFAULT_CNN_CHECKPOINT, DEFAULT_XGB_DIR, DEFAULT_THRESHOLDS

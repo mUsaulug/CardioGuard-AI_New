@@ -15,7 +15,7 @@ from src.config import get_default_config
 from src.data.loader import load_ptbxl_metadata, load_scp_statements
 from src.data.labels_superclass import add_superclass_labels_derived
 from src.data.splits import get_standard_split
-from src.pipeline.train_superclass_cnn import filter_missing_files, SUPERCLASS_LABELS
+from src.pipeline.training.train_superclass_cnn import filter_missing_files, SUPERCLASS_LABELS
 
 def main():
     parser = argparse.ArgumentParser()
