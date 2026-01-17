@@ -1,8 +1,16 @@
 """
 MI Localization Label Extraction Module.
 
-Extracts anatomical MI localization labels from PTB-XL.
-Focuses on 5 core regions: AMI, ASMI, ALMI, IMI, LMI.
+Derives 5 anatomical MI region labels from PTB-XL SCP codes.
+Target labels: [AMI, ASMI, ALMI, IMI, LMI]
+
+NOTE: These are DERIVED labels from MI_CODE_TO_REGIONS mapping:
+- 13+ PTB-XL codes (ILMI, IPLMI, INJXX, etc.) -> 5 targets
+- ILMI/IPLMI -> multi-hot IMI + LMI (posterior ignored)
+- PMI (posterior) excluded in Phase 1
+
+Label space: "ptbxl_derived_anatomical_v1"
+Fingerprint: 8ab274e06afa1be8 (locked at training time)
 
 Variants are mapped to combinations:
 - ILMI -> IMI + LMI

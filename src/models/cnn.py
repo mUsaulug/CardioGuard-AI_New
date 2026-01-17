@@ -10,12 +10,14 @@ from torch import nn
 
 @dataclass
 class ECGCNNConfig:
-    """Configuration for ECGCNN."""
+    \"\"\"Configuration for ECGCNN.\"\"\"
 
     in_channels: int = 12
     num_filters: int = 64
     kernel_size: int = 7
     dropout: float = 0.3
+    # WARNING: This is for TEMPORAL REGRESSION (start/end bounds), NOT MI localization!
+    # For MI localization 5-label classification, use ECGCNN(num_classes=5).
     localization_output_dim: int = 2
 
 

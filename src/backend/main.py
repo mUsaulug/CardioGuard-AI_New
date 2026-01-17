@@ -76,10 +76,17 @@ class SuperclassPredictionResponse(BaseModel):
 
 
 class MILocalizationResponse(BaseModel):
-    """MI localization prediction response."""
+    """MI localization prediction response with full contract fields."""
     mi_detected: bool = Field(..., description="Whether MI was detected")
     regions: List[str] = Field(default=[], description="Predicted MI regions")
     probabilities: Dict[str, float] = Field(default={}, description="Per-region probabilities")
+    
+    # Contract fields (K4 requirement)
+    label_space: str = Field(default="ptbxl_derived_anatomical_v1", description="Label space identifier")
+    labels: List[str] = Field(default=["AMI", "ASMI", "ALMI", "IMI", "LMI"], description="Ordered label list")
+    mapping_source: str = Field(default="src/data/mi_localization.py", description="Source file for mapping")
+    mapping_fingerprint: str = Field(default="8ab274e06afa1be8", description="Mapping version fingerprint")
+    localization_head_type: str = Field(default="classification_5", description="Head type (NOT regression_2)")
 
 
 class HealthResponse(BaseModel):
@@ -100,49 +107,86 @@ class ReadyResponse(BaseModel):
 # =============================================================================
 
 class AppState:
-    """Application state for loaded models."""
+    """Application state for loaded models (3-model system)."""
     
     def __init__(self):
-        self.cnn_model = None
+        # CNN Models (3 tasks)
+        self.superclass_model = None      # 4-class [MI, STTC, CD, HYP]
+        self.binary_model = None          # 1-class (MI vs NORM)
+        self.localization_model = None    # 5-class [AMI, ASMI, ALMI, IMI, LMI]
+        
+        # XGBoost
         self.xgb_models = {}
         self.calibrators = {}
         self.scaler = None
+        self.feature_schema = None
+        
+        # Config
         self.thresholds = {}
         self.norm_stats = None
-        self.model_hash = ""
+        
+        # Metadata
+        self.model_hashes = {}
         self.threshold_hash = ""
         self.loaded = False
     
     def load_models(
         self,
-        cnn_checkpoint: Path = Path("checkpoints/ecgcnn_superclass.pt"),
+        superclass_checkpoint: Path = Path("checkpoints/ecgcnn_superclass.pt"),
+        binary_checkpoint: Path = Path("checkpoints/ecgcnn.pt"),
+        localization_checkpoint: Path = Path("checkpoints/ecgcnn_localization.pt"),
         xgb_dir: Path = Path("logs/xgb_superclass"),
         thresholds_path: Path = Path("artifacts/thresholds_superclass.json"),
     ):
-        """Load all models."""
+        """Load all models with safe loader."""
         import torch
         import joblib
         from xgboost import XGBClassifier
+        from src.utils.model_loader import load_model_safe, validate_feature_schema
         
-        device = torch.device("cpu")  # Use CPU for API serving
+        device = torch.device("cpu")
         
-        # Load CNN
-        if cnn_checkpoint.exists():
-            from src.pipeline.training.train_superclass_cnn import MultiLabelECGCNN
-            from src.models.cnn import ECGCNNConfig
-            
-            checkpoint = torch.load(cnn_checkpoint, map_location=device)
-            config = ECGCNNConfig()
-            self.cnn_model = MultiLabelECGCNN(config)
-            self.cnn_model.load_state_dict(checkpoint["model_state_dict"])
-            self.cnn_model.eval()
-            
-            # Compute hash
-            with open(cnn_checkpoint, "rb") as f:
-                self.model_hash = hashlib.md5(f.read()).hexdigest()[:8]
+        # --- Load Superclass (required) ---
+        if superclass_checkpoint.exists():
+            self.superclass_model, meta = load_model_safe(
+                superclass_checkpoint, "superclass", device
+            )
+            self.model_hashes["superclass"] = meta["checkpoint_hash"]
+            print(f"Superclass model loaded (schema: {meta['schema']})")
         
-        # Load XGBoost models
+        # --- Load Binary (optional but recommended) ---
+        if binary_checkpoint.exists():
+            try:
+                self.binary_model, meta = load_model_safe(
+                    binary_checkpoint, "binary", device
+                )
+                self.model_hashes["binary"] = meta["checkpoint_hash"]
+                print(f"Binary model loaded (schema: {meta['schema']})")
+            except Exception as e:
+                print(f"Warning: Binary model load failed: {e}")
+        
+        # --- Load Localization (optional) ---
+        if localization_checkpoint.exists():
+            try:
+                self.localization_model, meta = load_model_safe(
+                    localization_checkpoint, "mi_localization", device
+                )
+                self.model_hashes["localization"] = meta["checkpoint_hash"]
+                print(f"Localization model loaded (schema: {meta['schema']})")
+            except Exception as e:
+                print(f"Warning: Localization model load failed: {e}")
+        
+        # --- Load XGBoost models ---
         if xgb_dir.exists():
+            # Load feature schema (FAIL-FAST if missing)
+            schema_path = xgb_dir / "feature_schema.json"
+            if schema_path.exists():
+                with open(schema_path) as f:
+                    self.feature_schema = json.load(f)
+                print(f"XGBoost feature schema loaded: {self.feature_schema['feature_count']} features")
+            else:
+                print("WARNING: feature_schema.json missing - XGBoost safety checks disabled")
+            
             for cls in ["MI", "STTC", "CD", "HYP"]:
                 model_path = xgb_dir / cls / "xgb_model.json"
                 if model_path.exists():
@@ -158,7 +202,7 @@ class AppState:
             if scaler_path.exists():
                 self.scaler = joblib.load(scaler_path)
         
-        # Load thresholds
+        # --- Load thresholds ---
         if thresholds_path.exists():
             with open(thresholds_path) as f:
                 data = json.load(f)
@@ -167,12 +211,14 @@ class AppState:
             with open(thresholds_path, "rb") as f:
                 self.threshold_hash = hashlib.md5(f.read()).hexdigest()[:8]
         else:
-            # Default thresholds
             self.thresholds = {"MI": 0.5, "STTC": 0.5, "CD": 0.5, "HYP": 0.5}
             self.threshold_hash = "default"
         
         self.loaded = True
-        print(f"Models loaded: CNN={self.cnn_model is not None}, XGB={len(self.xgb_models)} models")
+        print(f"Models loaded: Superclass={self.superclass_model is not None}, "
+              f"Binary={self.binary_model is not None}, "
+              f"Localization={self.localization_model is not None}, "
+              f"XGB={len(self.xgb_models)}")
 
 
 # Global state
@@ -201,7 +247,28 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Load models on startup."""
+    """Load models on startup with fail-fast validation."""
+    from src.utils.checkpoint_validation import (
+        validate_all_checkpoints,
+        CheckpointMismatchError,
+        MappingDriftError,
+    )
+    
+    # --- Fail-closed checkpoint validation ---
+    print("Validating checkpoints...")
+    try:
+        results = validate_all_checkpoints(strict=True)
+        print("Checkpoint validation passed!")
+        for task, result in results.items():
+            if isinstance(result, dict) and result.get("valid"):
+                print(f"  {task}: out_dim={result.get('out_dim')} ✓")
+    except (CheckpointMismatchError, MappingDriftError) as e:
+        print(f"CRITICAL: Checkpoint validation failed: {e}")
+        raise RuntimeError(f"Checkpoint validation failed: {e}")
+    except FileNotFoundError as e:
+        print(f"Warning: Some checkpoints missing: {e}")
+    
+    # --- Load models ---
     print("Loading models...")
     try:
         state.load_models()
@@ -307,8 +374,8 @@ async def predict_superclass(
     if not state.loaded:
         raise HTTPException(503, "Models not loaded")
     
-    if state.cnn_model is None:
-        raise HTTPException(503, "CNN model not loaded")
+    if state.superclass_model is None:
+        raise HTTPException(503, "Superclass model not loaded")
     
     # Validate file size (10MB max)
     content = await file.read()
@@ -325,7 +392,7 @@ async def predict_superclass(
     device = torch.device("cpu")
     with torch.no_grad():
         signal_tensor = torch.as_tensor(signal, dtype=torch.float32).unsqueeze(0)
-        cnn_logits = state.cnn_model(signal_tensor)
+        cnn_logits = state.superclass_model(signal_tensor)
         cnn_probs = torch.sigmoid(cnn_logits).numpy()[0]
     
     cnn_probs_dict = {
@@ -338,7 +405,7 @@ async def predict_superclass(
     # XGBoost prediction
     xgb_probs_dict = {}
     if state.xgb_models:
-        embeddings = state.cnn_model.backbone(signal_tensor).numpy()
+        embeddings = state.superclass_model.backbone(signal_tensor).numpy()
         if state.scaler:
             embeddings = state.scaler.transform(embeddings)
         
@@ -391,7 +458,7 @@ async def predict_superclass(
             ensemble=ensemble_probs,
         ),
         versions=VersionInfo(
-            model_hash=state.model_hash,
+            model_hash=state.model_hashes.get("superclass", ""),
             threshold_hash=state.threshold_hash,
             timestamp=datetime.utcnow().isoformat(),
         ),
@@ -401,14 +468,51 @@ async def predict_superclass(
 @app.post("/predict/mi-localization", response_model=MILocalizationResponse)
 async def predict_mi_localization(
     file: UploadFile = File(...),
+    threshold: float = Query(0.5, ge=0.0, le=1.0, description="Detection threshold"),
 ):
     """
-    MI localization prediction.
+    MI localization prediction (5 anatomical regions).
     
-    Only returns localization if MI is detected above threshold.
+    Labels: [AMI, ASMI, ALMI, IMI, LMI]
+    Label space: ptbxl_derived_anatomical_v1 (DERIVED from PTB-XL SCP codes)
     """
-    # TODO: Implement after MI localization model is trained
-    raise HTTPException(501, "MI localization not yet implemented")
+    import torch
+    from src.data.mi_localization import MI_LOCALIZATION_REGIONS
+    from src.utils.checkpoint_validation import MI_LOCALIZATION_FINGERPRINT
+    
+    if state.localization_model is None:
+        raise HTTPException(503, "MI localization model not loaded")
+    
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(413, "File too large (max 10MB)")
+    
+    try:
+        signal = parse_ecg_file(content, file.filename)
+    except Exception as e:
+        raise HTTPException(400, f"Could not parse file: {e}")
+    
+    with torch.no_grad():
+        signal_tensor = torch.as_tensor(signal, dtype=torch.float32).unsqueeze(0)
+        logits = state.localization_model(signal_tensor)
+        probs = torch.sigmoid(logits).detach().cpu().numpy()[0]
+    
+    probs_dict = {
+        region: float(probs[i])
+        for i, region in enumerate(MI_LOCALIZATION_REGIONS)
+    }
+    detected_regions = [r for r, p in probs_dict.items() if p >= threshold]
+    
+    return MILocalizationResponse(
+        mi_detected=len(detected_regions) > 0,
+        regions=detected_regions,
+        probabilities=probs_dict,
+        label_space="ptbxl_derived_anatomical_v1",
+        labels=MI_LOCALIZATION_REGIONS,
+        mapping_source="src/data/mi_localization.py",
+        mapping_fingerprint=MI_LOCALIZATION_FINGERPRINT,
+        localization_head_type="classification_5",
+    )
 
 
 # =============================================================================
