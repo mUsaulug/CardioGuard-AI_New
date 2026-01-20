@@ -1,45 +1,64 @@
-# CardioGuard-AI: ERD (Varlık-İlişki Diyagramı)
-## (Entity-Relationship Diagram)
+# CardioGuard-AI
+# Varlık-İlişki Diyagramı (ERD)
 
 ---
 
-## 📋 Doküman Bilgileri
+**Proje Adı:** CardioGuard-AI  
+**Doküman Tipi:** Varlık-İlişki Diyagramı (Entity-Relationship Diagram)  
+**Versiyon:** 1.0.0  
+**Tarih:** 21 Ocak 2026  
+**Hazırlayan:** CardioGuard-AI Geliştirme Ekibi
 
-| Özellik | Değer |
-|---------|-------|
-| **Proje Adı** | CardioGuard-AI |
-| **Doküman Tipi** | ERD (Varlık-İlişki Diyagramı) |
-| **Versiyon** | 1.0.0 |
-| **Tarih** | 2026-01-21 |
+---
+
+## İçindekiler
+
+1. [Genel Bakış](#1-genel-bakış)
+2. [ERD Diyagramı](#2-erd-diyagramı)
+3. [Varlık Detayları](#3-varlık-detayları)
+4. [İlişki Detayları](#4-ilişki-detayları)
+5. [Veri Bütünlüğü Kuralları](#5-veri-bütünlüğü-kuralları)
+6. [Veri Akışı](#6-veri-akışı)
+7. [Örnek Veri](#7-örnek-veri)
 
 ---
 
 ## 1. Genel Bakış
 
-CardioGuard-AI sistemi, PTB-XL veri setini kullanarak EKG sinyallerini işler ve tahmin sonuçları üretir. Bu ERD, sistemdeki tüm veri varlıklarını ve ilişkilerini gösterir.
+CardioGuard-AI sistemi, PTB-XL veri setini kullanarak EKG sinyallerini işler ve tahmin sonuçları üretir. Bu doküman, sistemdeki tüm veri varlıklarını ve ilişkilerini tanımlamaktadır.
+
+### 1.1 Varlık Kategorileri
+
+| Kategori | Varlıklar | Açıklama |
+|----------|-----------|----------|
+| Kaynak Veri | PATIENT, ECG_RECORD, SCP_STATEMENT | PTB-XL veritabanından gelen ham veriler |
+| Etiketler | SUPERCLASS_LABEL, MI_LOCALIZATION_LABEL | İşlenmiş etiket verileri |
+| Tahmin | PREDICTION_REQUEST, PREDICTION_RESULT | Tahmin işlem verileri |
+| Çıktı | MI_LOCALIZATION_RESULT, XAI_ARTIFACT | Tahmin çıktıları |
+| Konfigürasyon | MODEL_CHECKPOINT, THRESHOLD_CONFIG | Sistem yapılandırma verileri |
 
 ---
 
-## 2. Tam ERD Diyagramı
+## 2. ERD Diyagramı
 
 ```mermaid
 erDiagram
-    PATIENT ||--o{ ECG_RECORD : "has"
-    ECG_RECORD ||--o{ SCP_CODE_ASSIGNMENT : "contains"
-    SCP_STATEMENT ||--o{ SCP_CODE_ASSIGNMENT : "referenced by"
-    ECG_RECORD ||--o| SUPERCLASS_LABEL : "has"
-    ECG_RECORD ||--o| MI_LOCALIZATION_LABEL : "has (if MI)"
-    ECG_RECORD ||--o{ PREDICTION_REQUEST : "analyzed by"
-    PREDICTION_REQUEST ||--|| PREDICTION_RESULT : "produces"
-    PREDICTION_RESULT ||--o{ MI_LOCALIZATION_RESULT : "includes (if MI)"
-    PREDICTION_RESULT ||--o{ XAI_ARTIFACT : "generates"
-    MODEL_CHECKPOINT ||--o{ PREDICTION_REQUEST : "used by"
-    THRESHOLD_CONFIG ||--o{ PREDICTION_REQUEST : "applied to"
+    PATIENT ||--o{ ECG_RECORD : "sahiptir"
+    ECG_RECORD ||--o{ SCP_CODE_ASSIGNMENT : "içerir"
+    SCP_STATEMENT ||--o{ SCP_CODE_ASSIGNMENT : "referans verilir"
+    ECG_RECORD ||--o| SUPERCLASS_LABEL : "sahiptir"
+    ECG_RECORD ||--o| MI_LOCALIZATION_LABEL : "sahiptir (MI durumunda)"
+    ECG_RECORD ||--o{ PREDICTION_REQUEST : "analiz edilir"
+    PREDICTION_REQUEST ||--|| PREDICTION_RESULT : "üretir"
+    PREDICTION_RESULT ||--o{ MI_LOCALIZATION_RESULT : "içerir (MI durumunda)"
+    PREDICTION_RESULT ||--o{ XAI_ARTIFACT : "oluşturur"
+    MODEL_CHECKPOINT ||--o{ PREDICTION_REQUEST : "kullanılır"
+    THRESHOLD_CONFIG ||--o{ PREDICTION_REQUEST : "uygulanır"
     
     PATIENT {
         int patient_id PK "Hasta benzersiz kimliği"
         float age "Yaş"
-        string sex "Cinsiyet (M/F)"
+        string sex "Cinsiyet (E/K)"
         float height "Boy (cm)"
         float weight "Kilo (kg)"
     }
@@ -52,21 +71,15 @@ erDiagram
         datetime recording_date "Kayıt tarihi"
         int strat_fold "Çapraz doğrulama katmanı (1-10)"
         string device "Kayıt cihazı"
-        float baseline_drift "Baseline kayması"
-        float static_noise "Statik gürültü"
-        float burst_noise "Ani gürültü"
-        float electrodes_problems "Elektrot sorunları"
         string validated_by "Doğrulayan uzman"
     }
     
     SCP_STATEMENT {
-        string scp_code PK "SCP kodu (ör: AMI, NORM)"
+        string scp_code PK "SCP kodu"
         string description "Açıklama"
-        string diagnostic_class "Tanı sınıfı (ör: MI)"
+        string diagnostic_class "Tanı sınıfı"
         string diagnostic_subclass "Alt sınıf"
-        string form_statement "Form ifadesi"
-        string rhythm_statement "Ritim ifadesi"
-        bool is_diagnostic "Tanısal mı?"
+        bool is_diagnostic "Tanısal mı"
     }
     
     SCP_CODE_ASSIGNMENT {
@@ -77,7 +90,7 @@ erDiagram
     }
     
     SUPERCLASS_LABEL {
-        int ecg_id PK,FK "EKG referansı"
+        int ecg_id PK "EKG referansı"
         bool label_MI "MI etiketi"
         bool label_STTC "STTC etiketi"
         bool label_CD "CD etiketi"
@@ -87,7 +100,7 @@ erDiagram
     }
     
     MI_LOCALIZATION_LABEL {
-        int ecg_id PK,FK "EKG referansı"
+        int ecg_id PK "EKG referansı"
         bool label_AMI "Anterior MI"
         bool label_ASMI "Anteroseptal MI"
         bool label_ALMI "Anterolateral MI"
@@ -99,13 +112,12 @@ erDiagram
     PREDICTION_REQUEST {
         string request_id PK "İstek UUID"
         string case_id "Vaka kimliği"
-        int ecg_id FK "İlişkili EKG (opsiyonel)"
+        int ecg_id FK "İlişkili EKG"
         string model_version FK "Model versiyonu"
         datetime created_at "Oluşturulma zamanı"
-        string input_format "Girdi formatı (npz/npy)"
+        string input_format "Girdi formatı"
         int sample_rate_hz "Örnekleme hızı"
         float duration_sec "Süre (saniye)"
-        string signal_shape "Sinyal boyutu"
     }
     
     PREDICTION_RESULT {
@@ -116,14 +128,11 @@ erDiagram
         float prob_CD "CD olasılığı"
         float prob_HYP "HYP olasılığı"
         float prob_NORM "Türetilmiş NORM"
-        string predicted_labels "Tahmin edilen etiketler (JSON)"
+        string predicted_labels "Tahmin edilen etiketler"
         string primary_label "Birincil etiket"
         float primary_confidence "Birincil güven"
         string triage_level "Triaj seviyesi"
         string agreement_type "Model uyum tipi"
-        float cnn_prob_MI "CNN MI olasılığı"
-        float xgb_prob_MI "XGB MI olasılığı"
-        float ensemble_weight "Ensemble ağırlığı (α)"
     }
     
     MI_LOCALIZATION_RESULT {
@@ -134,15 +143,15 @@ erDiagram
         float prob_ALMI "ALMI olasılığı"
         float prob_IMI "IMI olasılığı"
         float prob_LMI "LMI olasılığı"
-        string detected_regions "Tespit edilen bölgeler (JSON)"
-        string label_space "Etiket uzayı ID"
-        string mapping_fingerprint "Mapping parmak izi"
+        string detected_regions "Tespit edilen bölgeler"
+        string label_space "Etiket uzayı kimliği"
+        string mapping_fingerprint "Eşleme parmak izi"
     }
     
     XAI_ARTIFACT {
-        string artifact_id PK "Artifact kimliği"
+        string artifact_id PK "Yapıt kimliği"
         string result_id FK "Sonuç referansı"
-        string artifact_type "Tip (gradcam/shap/narrative)"
+        string artifact_type "Tip"
         string file_path "Dosya yolu"
         string target_class "Hedef sınıf"
         datetime created_at "Oluşturulma zamanı"
@@ -150,25 +159,22 @@ erDiagram
     }
     
     MODEL_CHECKPOINT {
-        string checkpoint_id PK "Checkpoint kimliği"
-        string model_type "Model tipi (binary/superclass/localization)"
+        string checkpoint_id PK "Kontrol noktası kimliği"
+        string model_type "Model tipi"
         string file_path "Dosya yolu"
-        string model_hash "Model hash"
+        string model_hash "Model özeti"
         int output_dimension "Çıktı boyutu"
         datetime trained_at "Eğitim tarihi"
-        string training_config "Eğitim konfigürasyonu (JSON)"
         float validation_auroc "Doğrulama AUROC"
     }
     
     THRESHOLD_CONFIG {
-        string config_id PK "Konfigürasyon kimliği"
-        string config_hash "Konfigürasyon hash"
+        string config_id PK "Yapılandırma kimliği"
+        string config_hash "Yapılandırma özeti"
         float threshold_MI "MI eşiği"
         float threshold_STTC "STTC eşiği"
         float threshold_CD "CD eşiği"
         float threshold_HYP "HYP eşiği"
-        float superclass_mi_threshold "Superclass MI eşiği"
-        float binary_mi_threshold "Binary MI eşiği"
         datetime optimized_at "Optimizasyon tarihi"
     }
 ```
@@ -181,16 +187,20 @@ erDiagram
 
 | Alan | Tip | Açıklama | Kısıtlar |
 |------|-----|----------|----------|
-| `patient_id` | INT | Birincil anahtar | PK, NOT NULL, AUTO_INCREMENT |
-| `age` | FLOAT | Yaş (yıl) | CHECK (age >= 0 AND age <= 120) |
-| `sex` | VARCHAR(1) | Cinsiyet | CHECK (sex IN ('M', 'F')) |
-| `height` | FLOAT | Boy (cm) | NULLABLE |
-| `weight` | FLOAT | Kilo (kg) | NULLABLE |
+| patient_id | INT | Birincil anahtar | PK, NOT NULL, AUTO_INCREMENT |
+| age | FLOAT | Yaş (yıl) | CHECK (age >= 0 AND age <= 120) |
+| sex | VARCHAR(1) | Cinsiyet | CHECK (sex IN ('E', 'K')) |
+| height | FLOAT | Boy (cm) | NULL değeri alabilir |
+| weight | FLOAT | Kilo (kg) | NULL değeri alabilir |
 
-**İstatistikler (PTB-XL):**
-- Toplam: 18,885 benzersiz hasta
-- Yaş aralığı: 18-89
-- Cinsiyet dağılımı: ~52% Erkek, ~48% Kadın
+**İstatistikler (PTB-XL Veritabanı):**
+
+| Metrik | Değer |
+|--------|-------|
+| Toplam Hasta | 18,885 |
+| Yaş Aralığı | 18-89 |
+| Erkek Oranı | %52 |
+| Kadın Oranı | %48 |
 
 ---
 
@@ -198,19 +208,19 @@ erDiagram
 
 | Alan | Tip | Açıklama | Kısıtlar |
 |------|-----|----------|----------|
-| `ecg_id` | INT | Birincil anahtar | PK, NOT NULL |
-| `patient_id` | INT | Hasta referansı | FK -> PATIENT |
-| `filename_lr` | VARCHAR(255) | 100Hz dosya yolu | NOT NULL |
-| `filename_hr` | VARCHAR(255) | 500Hz dosya yolu | NOT NULL |
-| `strat_fold` | INT | Çapraz doğrulama katmanı | CHECK (strat_fold BETWEEN 1 AND 10) |
+| ecg_id | INT | Birincil anahtar | PK, NOT NULL |
+| patient_id | INT | Hasta referansı | FK, PATIENT tablosuna referans |
+| filename_lr | VARCHAR(255) | 100Hz dosya yolu | NOT NULL |
+| filename_hr | VARCHAR(255) | 500Hz dosya yolu | NOT NULL |
+| strat_fold | INT | Çapraz doğrulama katmanı | CHECK (strat_fold BETWEEN 1 AND 10) |
 
 **Veri Bölümlemesi:**
-```mermaid
-pie title Strat Fold Dağılımı
-    "Fold 1-8 (Train)" : 17469
-    "Fold 9 (Val)" : 2189
-    "Fold 10 (Test)" : 2179
-```
+
+| Bölüm | Katmanlar | Kayıt Sayısı | Oran |
+|-------|-----------|--------------|------|
+| Eğitim | 1-8 | 17,469 | %80 |
+| Doğrulama | 9 | 2,189 | %10 |
+| Test | 10 | 2,179 | %10 |
 
 ---
 
@@ -220,50 +230,58 @@ PTB-XL veri setindeki standart SCP kodları:
 
 | Kategori | Kodlar | Açıklama |
 |----------|--------|----------|
-| **NORM** | NORM | Normal EKG |
-| **MI** | AMI, IMI, ASMI, ALMI, LMI, ILMI, IPLMI, IPMI | Miyokard Enfarktüsü |
-| **STTC** | NDT, NST_, ISCA, ISCI, ISC_, STD_, STE_ | ST/T Değişikliği |
-| **CD** | CLBBB, CRBBB, IRBBB, 1AVB, 2AVB, 3AVB | İletim Bozukluğu |
-| **HYP** | LVH, RVH, SEHYP, LAO/LAE, RAO/RAE | Hipertrofi |
+| NORM | NORM | Normal EKG |
+| MI | AMI, IMI, ASMI, ALMI, LMI, ILMI, IPLMI, IPMI | Miyokard Enfarktüsü |
+| STTC | NDT, NST_, ISCA, ISCI, ISC_, STD_, STE_ | ST/T Değişikliği |
+| CD | CLBBB, CRBBB, IRBBB, 1AVB, 2AVB, 3AVB | İletim Bozukluğu |
+| HYP | LVH, RVH, SEHYP, LAO/LAE, RAO/RAE | Hipertrofi |
 
 ---
 
 ### 3.4 SUPERCLASS_LABEL (Süpersınıf Etiketi)
 
+**Çoklu Etiket Yapısı:**
+
 ```mermaid
 graph LR
-    subgraph "Çoklu-Etiket Yapısı"
+    subgraph Coklu_Etiket["Çoklu Etiket Yapısı"]
         MI["MI: 0/1"]
         STTC["STTC: 0/1"]
         CD["CD: 0/1"]
         HYP["HYP: 0/1"]
     end
     
-    subgraph "Türetilmiş"
-        NORM["NORM = !any(MI, STTC, CD, HYP)"]
+    subgraph Turetilmis["Türetilmiş"]
+        NORM["NORM = NOR(MI, STTC, CD, HYP)"]
     end
     
-    MI & STTC & CD & HYP --> NORM
+    MI --> NORM
+    STTC --> NORM
+    CD --> NORM
+    HYP --> NORM
 ```
 
 **Etiket Dağılımı:**
-| Sınıf | Sayı | Oran |
-|-------|------|------|
-| MI | 5,486 | 25.1% |
-| STTC | 5,250 | 24.0% |
-| CD | 4,907 | 22.5% |
-| HYP | 2,655 | 12.2% |
-| NORM | 9,528 | 43.6% |
 
-> **Not:** Toplamlar %100'ü aşar çünkü çoklu-etiket yapısı kullanılmaktadır.
+| Sınıf | Kayıt Sayısı | Oran |
+|-------|--------------|------|
+| MI | 5,486 | %25.1 |
+| STTC | 5,250 | %24.0 |
+| CD | 4,907 | %22.5 |
+| HYP | 2,655 | %12.2 |
+| NORM | 9,528 | %43.6 |
+
+*Not: Toplamlar %100'ü aşar çünkü çoklu etiket yapısı kullanılmaktadır.*
 
 ---
 
 ### 3.5 MI_LOCALIZATION_LABEL (MI Lokalizasyon Etiketi)
 
+**SCP Kodundan Bölge Eşlemesi:**
+
 ```mermaid
 graph TB
-    subgraph "SCP Kodları"
+    subgraph SCP_Kodlari["SCP Kodları"]
         AMI_CODE["AMI"]
         IMI_CODE["IMI"]
         ILMI_CODE["ILMI"]
@@ -271,7 +289,7 @@ graph TB
         INJXX["INJIN, INJAL, INJAS..."]
     end
     
-    subgraph "Türetilmiş Bölgeler"
+    subgraph Turetilmis_Bolgeler["Türetilmiş Bölgeler"]
         AMI["AMI - Anterior"]
         ASMI["ASMI - Anteroseptal"]
         ALMI["ALMI - Anterolateral"]
@@ -281,50 +299,51 @@ graph TB
     
     AMI_CODE --> AMI
     IMI_CODE --> IMI
-    ILMI_CODE --> IMI & LMI
-    IPLMI_CODE --> IMI & LMI
-    INJXX --> AMI & ASMI & ALMI & IMI & LMI
-    
-    style AMI fill:#ffcdd2
-    style IMI fill:#c8e6c9
+    ILMI_CODE --> IMI
+    ILMI_CODE --> LMI
+    IPLMI_CODE --> IMI
+    IPLMI_CODE --> LMI
 ```
 
-**Mapping Kuralları:**
-```
-MI_CODE_TO_REGIONS = {
-    "AMI": ["AMI"],
-    "ASMI": ["ASMI"],
-    "ALMI": ["ALMI"],
-    "IMI": ["IMI"],
-    "LMI": ["LMI"],
-    "ILMI": ["IMI", "LMI"],      # Inferolateral -> 2 bölge
-    "IPLMI": ["IMI", "LMI"],     # Inferoposterolateral -> 2 bölge
-    "IPMI": ["IMI"],             # Inferoposterior -> Inferior
-}
-```
+**Eşleme Kuralları:**
+
+| Kaynak Kod | Hedef Bölgeler | Açıklama |
+|------------|----------------|----------|
+| AMI | AMI | Anterior miyokard enfarktüsü |
+| ASMI | ASMI | Anteroseptal miyokard enfarktüsü |
+| ALMI | ALMI | Anterolateral miyokard enfarktüsü |
+| IMI | IMI | Inferior miyokard enfarktüsü |
+| LMI | LMI | Lateral miyokard enfarktüsü |
+| ILMI | IMI, LMI | Inferolateral - iki bölgeye eşlenir |
+| IPLMI | IMI, LMI | Inferoposterolateral - iki bölgeye eşlenir |
+| IPMI | IMI | Inferoposterior - inferior bölgeye eşlenir |
 
 ---
 
 ### 3.6 PREDICTION_RESULT (Tahmin Sonucu)
 
+**Ensemble Kombinasyonu:**
+
 ```mermaid
 graph TB
-    subgraph Sources["Kaynak Olasılıklar"]
-        CNN["CNN Probs"]
-        XGB["XGB Probs"]
+    subgraph Kaynaklar["Kaynak Olasılıklar"]
+        CNN["CNN Olasılıkları"]
+        XGB["XGBoost Olasılıkları"]
     end
     
-    subgraph Ensemble["Ensemble"]
-        ENS["P_final = α×P_cnn + (1-α)×P_xgb<br/>α = 0.15"]
+    subgraph Ensemble
+        ENS["P_final = alpha × P_cnn + (1-alpha) × P_xgb"]
     end
     
-    subgraph Output["Çıktılar"]
+    subgraph Cikti["Çıktılar"]
         PROBS["Olasılıklar"]
         LABELS["Etiketler"]
         TRIAGE["Triaj"]
     end
     
-    CNN & XGB --> ENS --> PROBS --> LABELS --> TRIAGE
+    CNN --> ENS
+    XGB --> ENS
+    ENS --> PROBS --> LABELS --> TRIAGE
 ```
 
 ---
@@ -335,188 +354,122 @@ graph TB
 
 | İlişki | Tip | Açıklama |
 |--------|-----|----------|
-| PATIENT → ECG_RECORD | 1:N | Bir hasta birden fazla EKG kaydına sahip olabilir |
-| ECG_RECORD → SCP_CODE_ASSIGNMENT | 1:N | Bir EKG birden fazla SCP koduna sahip olabilir |
-| ECG_RECORD → SUPERCLASS_LABEL | 1:1 | Her EKG'nin bir süpersınıf etiketi var |
-| ECG_RECORD → MI_LOCALIZATION_LABEL | 1:0..1 | MI tespit edilirse lokalizasyon etiketi var |
-| ECG_RECORD → PREDICTION_REQUEST | 1:N | Bir EKG birden fazla kez analiz edilebilir |
-| PREDICTION_REQUEST → PREDICTION_RESULT | 1:1 | Her istek bir sonuç üretir |
-| PREDICTION_RESULT → MI_LOCALIZATION_RESULT | 1:0..1 | MI tespit edilirse lokalizasyon sonucu var |
-| PREDICTION_RESULT → XAI_ARTIFACT | 1:N | Bir sonuç birden fazla XAI artifact'ı üretebilir |
+| PATIENT — ECG_RECORD | 1:N | Bir hasta birden fazla EKG kaydına sahip olabilir |
+| ECG_RECORD — SCP_CODE_ASSIGNMENT | 1:N | Bir EKG birden fazla SCP koduna sahip olabilir |
+| ECG_RECORD — SUPERCLASS_LABEL | 1:1 | Her EKG için bir süpersınıf etiketi bulunur |
+| ECG_RECORD — MI_LOCALIZATION_LABEL | 1:0..1 | MI tespit edilirse lokalizasyon etiketi bulunur |
+| ECG_RECORD — PREDICTION_REQUEST | 1:N | Bir EKG birden fazla kez analiz edilebilir |
+| PREDICTION_REQUEST — PREDICTION_RESULT | 1:1 | Her istek bir sonuç üretir |
+| PREDICTION_RESULT — MI_LOCALIZATION_RESULT | 1:0..1 | MI tespit edilirse lokalizasyon sonucu bulunur |
+| PREDICTION_RESULT — XAI_ARTIFACT | 1:N | Bir sonuç birden fazla XAI yapıtı üretebilir |
 
 ---
 
-## 5. İndeksler ve Performans
+## 5. Veri Bütünlüğü Kuralları
 
-### 5.1 Önerilen İndeksler
+### 5.1 Yabancı Anahtar Kısıtları
 
-```sql
--- Hasta aramaları için
-CREATE INDEX idx_patient_age ON PATIENT(age);
-CREATE INDEX idx_patient_sex ON PATIENT(sex);
+| Kaynak Tablo | Hedef Tablo | Silme Kuralı | Güncelleme Kuralı |
+|--------------|-------------|--------------|-------------------|
+| ECG_RECORD | PATIENT | RESTRICT | CASCADE |
+| PREDICTION_RESULT | PREDICTION_REQUEST | CASCADE | CASCADE |
+| XAI_ARTIFACT | PREDICTION_RESULT | CASCADE | CASCADE |
 
--- EKG kayıt aramaları için
-CREATE INDEX idx_ecg_patient ON ECG_RECORD(patient_id);
-CREATE INDEX idx_ecg_fold ON ECG_RECORD(strat_fold);
+### 5.2 Kontrol Kısıtları
 
--- SCP kod aramaları için
-CREATE INDEX idx_scp_assignment_ecg ON SCP_CODE_ASSIGNMENT(ecg_id);
-CREATE INDEX idx_scp_assignment_code ON SCP_CODE_ASSIGNMENT(scp_code);
-
--- Tahmin aramaları için
-CREATE INDEX idx_prediction_request_created ON PREDICTION_REQUEST(created_at);
-CREATE INDEX idx_prediction_result_triage ON PREDICTION_RESULT(triage_level);
-CREATE INDEX idx_prediction_result_mi ON PREDICTION_RESULT(prob_MI);
-```
-
-### 5.2 Sorgu Optimizasyonu
-
-```mermaid
-graph LR
-    subgraph "Sık Kullanılan Sorgular"
-        Q1["MI pozitif EKG'leri bul"]
-        Q2["Hasta bazlı sonuçlar"]
-        Q3["Triaj bazlı filtreleme"]
-        Q4["Zaman bazlı raporlama"]
-    end
-    
-    subgraph "İndeksler"
-        I1["idx_ecg_patient"]
-        I2["idx_prediction_result_mi"]
-        I3["idx_prediction_result_triage"]
-        I4["idx_prediction_request_created"]
-    end
-    
-    Q1 --> I2
-    Q2 --> I1
-    Q3 --> I3
-    Q4 --> I4
-```
+| Tablo | Kısıt | Açıklama |
+|-------|-------|----------|
+| PREDICTION_RESULT | prob_MI BETWEEN 0 AND 1 | Olasılık değer aralığı |
+| PREDICTION_RESULT | triage_level IN ('HIGH', 'MEDIUM', 'LOW', 'REVIEW') | Geçerli triaj seviyeleri |
+| THRESHOLD_CONFIG | threshold_MI BETWEEN 0 AND 1 | Eşik değer aralığı |
 
 ---
 
-## 6. Veri Bütünlüğü Kuralları
-
-### 6.1 Foreign Key Kısıtları
-
-```sql
--- EKG -> Hasta ilişkisi
-ALTER TABLE ECG_RECORD
-ADD CONSTRAINT fk_ecg_patient
-FOREIGN KEY (patient_id) REFERENCES PATIENT(patient_id)
-ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- Tahmin Sonucu -> İstek ilişkisi
-ALTER TABLE PREDICTION_RESULT
-ADD CONSTRAINT fk_result_request
-FOREIGN KEY (request_id) REFERENCES PREDICTION_REQUEST(request_id)
-ON DELETE CASCADE ON UPDATE CASCADE;
-```
-
-### 6.2 Check Kısıtları
-
-```sql
--- Olasılık değerleri 0-1 arasında olmalı
-ALTER TABLE PREDICTION_RESULT
-ADD CONSTRAINT chk_prob_range
-CHECK (prob_MI BETWEEN 0 AND 1
-   AND prob_STTC BETWEEN 0 AND 1
-   AND prob_CD BETWEEN 0 AND 1
-   AND prob_HYP BETWEEN 0 AND 1);
-
--- Triaj seviyeleri geçerli olmalı
-ALTER TABLE PREDICTION_RESULT
-ADD CONSTRAINT chk_triage_level
-CHECK (triage_level IN ('HIGH', 'MEDIUM', 'LOW', 'REVIEW'));
-
--- Eşik değerleri 0-1 arasında olmalı
-ALTER TABLE THRESHOLD_CONFIG
-ADD CONSTRAINT chk_threshold_range
-CHECK (threshold_MI BETWEEN 0 AND 1
-   AND threshold_STTC BETWEEN 0 AND 1);
-```
-
----
-
-## 7. Veri Akışı
+## 6. Veri Akışı
 
 ```mermaid
 flowchart TB
-    subgraph Input["Girdi Katmanı"]
-        PTBXL["PTB-XL<br/>Ham Veriler"]
+    subgraph Girdi_Katmani["Girdi Katmanı"]
+        PTBXL["PTB-XL Ham Veriler"]
     end
     
-    subgraph Processing["İşleme Katmanı"]
+    subgraph Isleme_Katmani["İşleme Katmanı"]
         PATIENT_TBL["PATIENT"]
         ECG_TBL["ECG_RECORD"]
         SCP_TBL["SCP_STATEMENT"]
-        LABEL_TBL["SUPERCLASS_LABEL<br/>MI_LOCALIZATION_LABEL"]
+        LABEL_TBL["SUPERCLASS_LABEL ve MI_LOCALIZATION_LABEL"]
     end
     
-    subgraph Inference["Çıkarım Katmanı"]
+    subgraph Cikarim_Katmani["Çıkarım Katmanı"]
         REQUEST["PREDICTION_REQUEST"]
         RESULT["PREDICTION_RESULT"]
         MILOC["MI_LOCALIZATION_RESULT"]
         XAI["XAI_ARTIFACT"]
     end
     
-    subgraph Config["Konfigürasyon"]
+    subgraph Konfigurasyon["Konfigürasyon"]
         MODEL["MODEL_CHECKPOINT"]
         THRESH["THRESHOLD_CONFIG"]
     end
     
-    PTBXL --> PATIENT_TBL & ECG_TBL & SCP_TBL
+    PTBXL --> PATIENT_TBL
+    PTBXL --> ECG_TBL
+    PTBXL --> SCP_TBL
     ECG_TBL --> LABEL_TBL
     SCP_TBL --> LABEL_TBL
     
     ECG_TBL --> REQUEST
-    MODEL & THRESH --> REQUEST
+    MODEL --> REQUEST
+    THRESH --> REQUEST
     REQUEST --> RESULT
-    RESULT --> MILOC & XAI
-    
-    style PTBXL fill:#e3f2fd
-    style RESULT fill:#e8f5e9
+    RESULT --> MILOC
+    RESULT --> XAI
 ```
 
 ---
 
-## 8. Örnek Veri
+## 7. Örnek Veri
 
-### 8.1 Örnek EKG Kaydı
+### 7.1 Örnek EKG Kaydı
 
-```json
-{
-  "ecg_id": 1,
-  "patient_id": 15709,
-  "filename_lr": "records100/00000/00001_lr",
-  "filename_hr": "records500/00000/00001_hr",
-  "strat_fold": 3,
-  "scp_codes": {
-    "AMI": 80.0,
-    "IMI": 100.0
-  }
-}
-```
+| Alan | Değer |
+|------|-------|
+| ecg_id | 1 |
+| patient_id | 15709 |
+| filename_lr | records100/00000/00001_lr |
+| filename_hr | records500/00000/00001_hr |
+| strat_fold | 3 |
+| scp_codes | AMI: 80.0, IMI: 100.0 |
 
-### 8.2 Örnek Tahmin Sonucu
+### 7.2 Örnek Tahmin Sonucu
 
-```json
-{
-  "result_id": "res_abc123",
-  "request_id": "req_xyz789",
-  "prob_MI": 0.85,
-  "prob_STTC": 0.12,
-  "prob_CD": 0.08,
-  "prob_HYP": 0.05,
-  "prob_NORM": 0.15,
-  "predicted_labels": ["MI"],
-  "primary_label": "MI",
-  "primary_confidence": 0.85,
-  "triage_level": "HIGH",
-  "agreement_type": "AGREE_MI"
-}
-```
+| Alan | Değer |
+|------|-------|
+| result_id | res_abc123 |
+| request_id | req_xyz789 |
+| prob_MI | 0.85 |
+| prob_STTC | 0.12 |
+| prob_CD | 0.08 |
+| prob_HYP | 0.05 |
+| prob_NORM | 0.15 |
+| predicted_labels | [MI] |
+| primary_label | MI |
+| primary_confidence | 0.85 |
+| triage_level | HIGH |
+| agreement_type | AGREE_MI |
 
 ---
 
-> **Not:** Bu ERD, CardioGuard-AI v1.0.0 veri modelini temsil eder. Veritabanı şeması, file-based storage kullanıldığından kavramsal düzeydedir. Üretim ortamında PostgreSQL veya MongoDB kullanılması önerilir.
+## Onay Sayfası
+
+| Rol | Ad Soyad | Tarih | İmza |
+|-----|----------|-------|------|
+| Veritabanı Mimarı | | | |
+| Teknik Lider | | | |
+| Kalite Güvence Mühendisi | | | |
+
+---
+
+**Doküman Sonu**
+
+*Bu ERD, CardioGuard-AI v1.0.0 veri modelini temsil eder. Veritabanı şeması, dosya tabanlı depolama kullanıldığından kavramsal düzeydedir. Üretim ortamında PostgreSQL veya MongoDB kullanılması önerilir.*

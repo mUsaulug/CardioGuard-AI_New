@@ -1,33 +1,45 @@
-# CardioGuard-AI: Class Diyagramı
-## (Sınıf Diyagramı)
+# CardioGuard-AI
+# Sınıf Diyagramı
 
 ---
 
-## 📋 Doküman Bilgileri
+**Proje Adı:** CardioGuard-AI  
+**Doküman Tipi:** Sınıf Diyagramı (Class Diagram)  
+**Versiyon:** 1.0.0  
+**Tarih:** 21 Ocak 2026  
+**Hazırlayan:** CardioGuard-AI Geliştirme Ekibi
 
-| Özellik | Değer |
-|---------|-------|
-| **Proje Adı** | CardioGuard-AI |
-| **Doküman Tipi** | Class Diyagramı |
-| **Versiyon** | 1.0.0 |
-| **Tarih** | 2026-01-21 |
+---
+
+## İçindekiler
+
+1. [Genel Bakış](#1-genel-bakış)
+2. [Model Paketi](#2-model-paketi)
+3. [Veri Paketi](#3-veri-paketi)
+4. [Pipeline Paketi](#4-pipeline-paketi)
+5. [XAI Paketi](#5-xai-paketi)
+6. [Kontrat Paketi](#6-kontrat-paketi)
+7. [Backend Paketi](#7-backend-paketi)
+8. [Yardımcı Paket](#8-yardımcı-paket)
+9. [Bağımlılık Grafiği](#9-bağımlılık-grafiği)
+10. [Tasarım Prensipleri](#10-tasarım-prensipleri)
 
 ---
 
 ## 1. Genel Bakış
 
-CardioGuard-AI sistemi aşağıdaki ana paketlerden oluşur:
+CardioGuard-AI sistemi aşağıdaki ana paketlerden oluşmaktadır:
 
 ```mermaid
 graph TB
-    subgraph Packages["📦 Paketler"]
-        MODELS["src.models<br/>🧠 Model Tanımları"]
-        DATA["src.data<br/>📊 Veri İşleme"]
-        PIPELINE["src.pipeline<br/>🔄 Pipeline'lar"]
-        XAI["src.xai<br/>💡 Açıklanabilirlik"]
-        CONTRACTS["src.contracts<br/>📄 API Kontratları"]
-        BACKEND["src.backend<br/>🌐 Web Servisi"]
-        UTILS["src.utils<br/>🔧 Yardımcılar"]
+    subgraph Paketler
+        MODELS["src.models - Model Tanımları"]
+        DATA["src.data - Veri İşleme"]
+        PIPELINE["src.pipeline - İş Akışları"]
+        XAI["src.xai - Açıklanabilirlik"]
+        CONTRACTS["src.contracts - API Kontratları"]
+        BACKEND["src.backend - Web Servisi"]
+        UTILS["src.utils - Yardımcı Fonksiyonlar"]
     end
     
     BACKEND --> MODELS
@@ -38,28 +50,19 @@ graph TB
     PIPELINE --> XAI
     XAI --> MODELS
     CONTRACTS --> DATA
-    
-    style MODELS fill:#e3f2fd
-    style DATA fill:#fff3e0
-    style PIPELINE fill:#e8f5e9
-    style XAI fill:#f3e5f5
-    style CONTRACTS fill:#fce4ec
-    style BACKEND fill:#e0f2f1
-    style UTILS fill:#f5f5f5
 ```
 
 ---
 
 ## 2. Model Paketi (src.models)
 
-### 2.1 Tam Class Diyagramı
+### 2.1 Sınıf Diyagramı
 
 ```mermaid
 classDiagram
     direction TB
     
     class ECGCNNConfig {
-        <<dataclass>>
         +int in_channels = 12
         +int num_filters = 64
         +int kernel_size = 7
@@ -68,100 +71,89 @@ classDiagram
     }
     
     class ECGBackbone {
-        <<nn.Module>>
         -Sequential features
         +__init__(config: ECGCNNConfig)
         +forward(x: Tensor) Tensor
-        ~Conv1d layer1
-        ~BatchNorm1d bn1
-        ~ReLU relu1
-        ~Dropout drop1
-        ~Conv1d layer2
-        ~BatchNorm1d bn2
-        ~ReLU relu2
-        ~Dropout drop2
-        ~AdaptiveAvgPool1d pool
     }
     
     class BinaryHead {
-        <<nn.Module>>
         -Linear classifier
         +__init__(in_features: int)
         +forward(x: Tensor) Tensor
     }
     
     class MultiClassHead {
-        <<nn.Module>>
         -Linear classifier
         +__init__(in_features: int, num_classes: int)
         +forward(x: Tensor) Tensor
     }
     
     class FiveClassHead {
-        <<nn.Module>>
         +__init__(in_features: int)
     }
     
     class LocalizationHead {
-        <<nn.Module>>
         -Linear regressor
-        +__init__(in_features: int, output_dim: int = 2)
+        +__init__(in_features: int, output_dim: int)
         +forward(x: Tensor) Tensor
     }
     
     class ECGCNN {
-        <<nn.Module>>
         +ECGBackbone backbone
         +Module head
-        +__init__(config: ECGCNNConfig, num_classes: int = 1)
+        +__init__(config: ECGCNNConfig, num_classes: int)
         +forward(x: Tensor) Tensor
     }
     
     class MultiTaskECGCNN {
-        <<nn.Module>>
         +ECGBackbone backbone
         +Module head
         +LocalizationHead localization_head
-        +__init__(config: ECGCNNConfig, num_classes: int = 1)
-        +forward(x: Tensor) Dict~str, Tensor~
+        +__init__(config: ECGCNNConfig, num_classes: int)
+        +forward(x: Tensor) Dict
     }
     
-    class CNNEncoder {
-        <<deprecated>>
-        ~Alias for ECGBackbone
-    }
-    
-    %% İlişkiler
-    ECGBackbone --> ECGCNNConfig : uses
-    ECGCNN --> ECGBackbone : contains
-    ECGCNN --> BinaryHead : uses (num_classes=1)
-    ECGCNN --> MultiClassHead : uses (num_classes>1)
-    MultiTaskECGCNN --> ECGBackbone : contains
-    MultiTaskECGCNN --> LocalizationHead : contains
-    FiveClassHead --|> MultiClassHead : extends
-    CNNEncoder --|> ECGBackbone : alias
+    ECGBackbone --> ECGCNNConfig : kullanır
+    ECGCNN --> ECGBackbone : içerir
+    ECGCNN --> BinaryHead : kullanır
+    ECGCNN --> MultiClassHead : kullanır
+    MultiTaskECGCNN --> ECGBackbone : içerir
+    MultiTaskECGCNN --> LocalizationHead : içerir
+    FiveClassHead --|> MultiClassHead : genişletir
 ```
 
 ### 2.2 Model Varyantları
 
-| Model | Çıktı Boyutu | Head Tipi | Kullanım |
-|-------|--------------|-----------|----------|
-| **Binary MI** | 1 | BinaryHead | MI vs NORM sınıflandırması |
-| **Superclass** | 4 | MultiClassHead | [MI, STTC, CD, HYP] çoklu-etiket |
-| **Localization** | 5 | FiveClassHead | [AMI, ASMI, ALMI, IMI, LMI] bölge tespiti |
+| Model | Çıktı Boyutu | Kafa Tipi | Kullanım Amacı |
+|-------|--------------|-----------|----------------|
+| Binary MI | 1 | BinaryHead | MI ve Normal sınıflandırma |
+| Superclass | 4 | MultiClassHead | MI, STTC, CD, HYP çoklu etiket |
+| Lokalizasyon | 5 | FiveClassHead | AMI, ASMI, ALMI, IMI, LMI bölge tespiti |
+
+### 2.3 Sınıf Açıklamaları
+
+| Sınıf | Açıklama |
+|-------|----------|
+| ECGCNNConfig | Model yapılandırma parametrelerini tutan veri sınıfı |
+| ECGBackbone | Evrişimsel sinir ağı omurgası, 64 boyutlu gömme vektörü üretir |
+| BinaryHead | İkili sınıflandırma için tek çıktılı doğrusal katman |
+| MultiClassHead | Çoklu sınıf sınıflandırma için n çıktılı doğrusal katman |
+| FiveClassHead | Beş sınıflı sınıflandırma için özelleştirilmiş kafa |
+| LocalizationHead | Regresyon çıktısı için doğrusal katman |
+| ECGCNN | Tam EKG sınıflandırma modeli |
+| MultiTaskECGCNN | Çoklu görev modeli (sınıflandırma ve lokalizasyon) |
 
 ---
 
-## 3. Data Paketi (src.data)
+## 3. Veri Paketi (src.data)
 
-### 3.1 Class Diyagramı
+### 3.1 Sınıf Diyagramı
 
 ```mermaid
 classDiagram
     direction TB
     
     class SignalDataset {
-        <<torch.utils.data.Dataset>>
         -DataFrame df
         -Path base_path
         -str filename_column
@@ -175,7 +167,6 @@ classDiagram
     }
     
     class CachedSignalDataset {
-        <<torch.utils.data.Dataset>>
         -ndarray signals
         -ndarray ecg_ids
         -Dict labels
@@ -186,18 +177,12 @@ classDiagram
     }
     
     class PTBXLConfig {
-        <<dataclass>>
         +Path data_dir
         +str metadata_file
         +str scp_statements_file
         +int sampling_rate = 100
         +int signal_length = 1000
         +int num_leads = 12
-    }
-    
-    class DataSplitter {
-        +split_by_fold(df, train_folds, val_fold, test_fold) Tuple
-        +get_stratified_split(df, label_col, test_size) Tuple
     }
     
     class LabelProcessor {
@@ -208,9 +193,9 @@ classDiagram
     }
     
     class MILocalizationProcessor {
-        +List~str~ MI_LOCALIZATION_REGIONS$
-        +Dict MI_CODE_TO_REGIONS$
-        +List~str~ EXCLUDED_MI_CODES$
+        +List MI_LOCALIZATION_REGIONS
+        +Dict MI_CODE_TO_REGIONS
+        +List EXCLUDED_MI_CODES
         +extract_mi_regions(scp_codes, min_likelihood) List
         +extract_mi_localization_labels(df) ndarray
         +add_mi_localization_labels(df) DataFrame
@@ -230,50 +215,46 @@ classDiagram
         +per_lead_normalize(signal) ndarray
     }
     
-    %% İlişkiler
-    SignalDataset --> PTBXLConfig : uses
-    SignalDataset --> SignalLoader : uses
-    SignalDataset --> LabelProcessor : uses
-    CachedSignalDataset --> Normalizer : may use
-    MILocalizationProcessor --> LabelProcessor : extends
+    SignalDataset --> PTBXLConfig : kullanır
+    SignalDataset --> SignalLoader : kullanır
+    SignalDataset --> LabelProcessor : kullanır
+    CachedSignalDataset --> Normalizer : kullanabilir
+    MILocalizationProcessor --> LabelProcessor : genişletir
 ```
 
 ### 3.2 Veri Akışı
 
 ```mermaid
 graph LR
-    subgraph Raw["Ham Veri"]
-        PTBXL["PTB-XL<br/>21,837 kayıt"]
+    subgraph Ham_Veri["Ham Veri"]
+        PTBXL["PTB-XL Veritabanı (21,837 kayıt)"]
     end
     
-    subgraph Loading["Yükleme"]
+    subgraph Yukleme["Yükleme"]
         LOADER["SignalLoader"]
-        META["Metadata<br/>DataFrame"]
+        META["Metadata DataFrame"]
     end
     
-    subgraph Processing["İşleme"]
+    subgraph Isleme["İşleme"]
         LABEL["LabelProcessor"]
         MILOC["MILocalizationProcessor"]
         NORM["Normalizer"]
     end
     
-    subgraph Output["Çıktı"]
-        DS["SignalDataset<br/>veya<br/>CachedSignalDataset"]
+    subgraph Cikti["Çıktı"]
+        DS["SignalDataset veya CachedSignalDataset"]
     end
     
     PTBXL --> LOADER --> META
     META --> LABEL --> MILOC --> DS
     LOADER --> NORM --> DS
-    
-    style PTBXL fill:#e3f2fd
-    style DS fill:#e8f5e9
 ```
 
 ---
 
 ## 4. Pipeline Paketi (src.pipeline)
 
-### 4.1 Inference Pipeline
+### 4.1 Çıkarım Pipeline Sınıfları
 
 ```mermaid
 classDiagram
@@ -288,59 +269,33 @@ classDiagram
     }
     
     class ConsistencyResult {
-        <<dataclass>>
         +float superclass_mi_prob
         +float binary_mi_prob
         +bool superclass_mi_decision
         +bool binary_mi_decision
         +AgreementType agreement
         +str triage_level
-        +List~str~ warnings
+        +List warnings
         +to_dict() Dict
     }
     
     class ConsistencyGuard {
-        <<module>>
         +check_consistency(superclass_mi_prob, binary_mi_prob, thresholds) ConsistencyResult
         +should_run_localization(consistency, gate_mode) bool
         +derive_norm_from_superclass(superclass_probs, threshold) Dict
     }
     
-    class InferencePipeline {
-        <<abstract>>
-        +Model superclass_model
-        +Model binary_model
-        +Model localization_model
-        +Dict xgb_models
-        +Dict thresholds
-        +predict(signal) Dict
-    }
-    
-    class SuperclassInference {
-        +predict_superclass(signal) Dict
-        +extract_embeddings(signal) ndarray
-        +ensemble_predictions(cnn_probs, xgb_probs, alpha) Dict
-    }
-    
-    class BinaryInference {
-        +predict_binary(signal) float
-    }
-    
-    ConsistencyResult --> AgreementType : contains
-    ConsistencyGuard --> ConsistencyResult : returns
-    InferencePipeline --> ConsistencyGuard : uses
-    SuperclassInference --|> InferencePipeline : implements
-    BinaryInference --|> InferencePipeline : implements
+    ConsistencyResult --> AgreementType : içerir
+    ConsistencyGuard --> ConsistencyResult : döndürür
 ```
 
-### 4.2 Training Pipeline
+### 4.2 Eğitim Pipeline Sınıfları
 
 ```mermaid
 classDiagram
     direction TB
     
     class Trainer {
-        <<base>>
         +Model model
         +Optimizer optimizer
         +Loss criterion
@@ -368,7 +323,7 @@ classDiagram
     }
     
     class XGBoostTrainer {
-        +train_xgb_ovr(embeddings, labels) Dict~str, XGBClassifier~
+        +train_xgb_ovr(embeddings, labels) Dict
         +calibrate_models(models, X_val, y_val) Dict
         +save_models(models, output_dir)
     }
@@ -378,11 +333,20 @@ classDiagram
     LocalizationTrainer --|> Trainer
 ```
 
+### 4.3 Uyum Tipi Açıklamaları
+
+| Uyum Tipi | Super MI | Binary MI | Triaj | Yorum |
+|-----------|----------|-----------|-------|-------|
+| AGREE_MI | Pozitif | Pozitif | Yüksek | Her iki model MI tespit etti |
+| AGREE_NO_MI | Negatif | Negatif | Düşük | Her iki model MI tespit etmedi |
+| DISAGREE_TYPE_1 | Pozitif | Negatif | İnceleme | Düşük güvenlikli MI |
+| DISAGREE_TYPE_2 | Negatif | Pozitif | İnceleme | Superclass kaçırmış olabilir |
+
 ---
 
 ## 5. XAI Paketi (src.xai)
 
-### 5.1 Class Diyagramı
+### 5.1 Sınıf Diyagramı
 
 ```mermaid
 classDiagram
@@ -394,7 +358,6 @@ classDiagram
         -Tensor gradients
         -Tensor activations
         +__init__(model, target_layer)
-        -_register_hooks()
         +generate(inputs, class_index) ndarray
     }
     
@@ -412,9 +375,9 @@ classDiagram
     }
     
     class SHAPOVRExplainer {
-        -Dict~str, TreeExplainer~ explainers
+        -Dict explainers
         +__init__(models_dict)
-        +explain_per_class(x) Dict~str, ndarray~
+        +explain_per_class(x) Dict
     }
     
     class SanityChecker {
@@ -436,57 +399,54 @@ classDiagram
     
     SHAPXGBExplainer --|> SHAPExplainer
     SHAPOVRExplainer --|> SHAPExplainer
-    XAIVisualizer --> GradCAM : visualizes
-    XAIVisualizer --> SHAPExplainer : visualizes
-    XAIReporter --> XAIVisualizer : uses
+    XAIVisualizer --> GradCAM : görselleştirir
+    XAIVisualizer --> SHAPExplainer : görselleştirir
+    XAIReporter --> XAIVisualizer : kullanır
 ```
 
 ### 5.2 Açıklama Akışı
 
 ```mermaid
 graph TB
-    subgraph Input
+    subgraph Girdi
         SIGNAL["EKG Sinyali"]
         PREDS["Tahminler"]
     end
     
-    subgraph Generators["Açıklama Üreticileri"]
+    subgraph Ureticiler["Açıklama Üreticileri"]
         GCAM["GradCAM"]
-        SHAP["SHAP Explainer"]
+        SHAP["SHAP Açıklayıcı"]
     end
     
-    subgraph Validators["Doğrulayıcılar"]
+    subgraph Dogrulayicilar["Doğrulayıcılar"]
         SANITY["SanityChecker"]
     end
     
-    subgraph Output["Çıktılar"]
-        VIZ["Görselleştirmeler<br/>(PNG)"]
-        TEXT["Narratives<br/>(MD)"]
+    subgraph Cikti["Çıktılar"]
+        VIZ["Görselleştirmeler (PNG)"]
+        TEXT["Metin Açıklamaları (MD)"]
     end
     
-    SIGNAL --> GCAM & SHAP
-    PREDS --> GCAM & SHAP
+    SIGNAL --> GCAM
+    SIGNAL --> SHAP
+    PREDS --> GCAM
+    PREDS --> SHAP
     GCAM --> SANITY --> VIZ
     SHAP --> VIZ
     VIZ --> TEXT
-    
-    style GCAM fill:#ffecb3
-    style SHAP fill:#ffecb3
-    style SANITY fill:#ffcdd2
 ```
 
 ---
 
-## 6. Contracts Paketi (src.contracts)
+## 6. Kontrat Paketi (src.contracts)
 
-### 6.1 Class Diyagramı
+### 6.1 Sınıf Diyagramı
 
 ```mermaid
 classDiagram
     direction TB
     
     class AIResultMapper {
-        <<module>>
         +clamp(value, min_val, max_val) float
         +compute_triage(predictions, input_meta) Dict
         +derive_input_meta(signal_path, request_payload) Dict
@@ -494,7 +454,6 @@ classDiagram
     }
     
     class AIResultSchema {
-        <<TypedDict>>
         +Dict identity
         +str mode
         +Dict input
@@ -507,39 +466,37 @@ classDiagram
     }
     
     class ArtifactDiscovery {
-        <<module>>
-        +discover_xai_artifacts(run_dir) List~Dict~
+        +discover_xai_artifacts(run_dir) List
         +validate_artifact_path(path) bool
         +get_artifact_metadata(path) Dict
     }
     
     class TriageLevel {
         <<enumeration>>
-        HIGH = "HIGH"
-        MEDIUM = "MEDIUM"
-        LOW = "LOW"
-        REVIEW = "REVIEW"
+        HIGH
+        MEDIUM
+        LOW
+        REVIEW
     }
     
-    AIResultMapper --> AIResultSchema : produces
-    AIResultMapper --> TriageLevel : uses
-    AIResultMapper --> ArtifactDiscovery : uses
+    AIResultMapper --> AIResultSchema : üretir
+    AIResultMapper --> TriageLevel : kullanır
+    AIResultMapper --> ArtifactDiscovery : kullanır
 ```
 
 ---
 
 ## 7. Backend Paketi (src.backend)
 
-### 7.1 Class Diyagramı
+### 7.1 Sınıf Diyagramı
 
 ```mermaid
 classDiagram
     direction TB
     
     class FastAPIApp {
-        <<FastAPI>>
-        +str title = "CardioGuard-AI"
-        +str version = "1.0.0"
+        +str title
+        +str version
         +CORSMiddleware cors
     }
     
@@ -557,7 +514,6 @@ classDiagram
     }
     
     class PredictionProbabilities {
-        <<Pydantic BaseModel>>
         +float MI
         +float STTC
         +float CD
@@ -566,134 +522,108 @@ classDiagram
     }
     
     class PrimaryPrediction {
-        <<Pydantic BaseModel>>
         +str label
         +float confidence
-        +str rule = "MI-first-then-priority"
+        +str rule
     }
     
     class SourceProbabilities {
-        <<Pydantic BaseModel>>
-        +Dict~str, float~ cnn
-        +Dict~str, float~ xgb
-        +Dict~str, float~ ensemble
+        +Dict cnn
+        +Dict xgb
+        +Dict ensemble
     }
     
     class VersionInfo {
-        <<Pydantic BaseModel>>
         +str model_hash
         +str threshold_hash
-        +str api_version = "1.0.0"
+        +str api_version
         +str timestamp
     }
     
     class SuperclassPredictionResponse {
-        <<Pydantic BaseModel>>
-        +str mode = "multilabel-superclass"
+        +str mode
         +PredictionProbabilities probabilities
-        +List~str~ predicted_labels
-        +Dict~str, float~ thresholds
+        +List predicted_labels
+        +Dict thresholds
         +PrimaryPrediction primary
         +SourceProbabilities sources
         +VersionInfo versions
     }
     
     class MILocalizationResponse {
-        <<Pydantic BaseModel>>
         +bool mi_detected
-        +Dict~str, float~ region_probabilities
-        +List~str~ detected_regions
+        +Dict region_probabilities
+        +List detected_regions
         +str label_space
         +str mapping_fingerprint
         +str localization_head_type
     }
     
     class HealthResponse {
-        <<Pydantic BaseModel>>
         +str status
         +str timestamp
     }
     
     class ReadyResponse {
-        <<Pydantic BaseModel>>
         +bool ready
-        +Dict~str, bool~ models_loaded
+        +Dict models_loaded
         +str message
     }
     
-    %% İlişkiler
-    FastAPIApp --> AppState : contains
+    FastAPIApp --> AppState : içerir
     SuperclassPredictionResponse --> PredictionProbabilities
     SuperclassPredictionResponse --> PrimaryPrediction
     SuperclassPredictionResponse --> SourceProbabilities
     SuperclassPredictionResponse --> VersionInfo
 ```
 
-### 7.2 API Endpoint'leri
+### 7.2 API Uç Noktaları
 
-```mermaid
-graph LR
-    subgraph Endpoints
-        E1["POST /predict/superclass"]
-        E2["POST /predict/mi-localization"]
-        E3["GET /health"]
-        E4["GET /ready"]
-    end
-    
-    subgraph Responses
-        R1["SuperclassPredictionResponse"]
-        R2["MILocalizationResponse"]
-        R3["HealthResponse"]
-        R4["ReadyResponse"]
-    end
-    
-    E1 --> R1
-    E2 --> R2
-    E3 --> R3
-    E4 --> R4
-    
-    style E1 fill:#e8f5e9
-    style E2 fill:#fff3e0
-    style E3 fill:#e3f2fd
-    style E4 fill:#e3f2fd
-```
+| Uç Nokta | Metod | Yanıt Sınıfı | Açıklama |
+|----------|-------|--------------|----------|
+| /predict/superclass | POST | SuperclassPredictionResponse | Çoklu etiket patoloji tahmini |
+| /predict/mi-localization | POST | MILocalizationResponse | MI anatomik lokalizasyonu |
+| /health | GET | HealthResponse | Canlılık kontrolü |
+| /ready | GET | ReadyResponse | Hazırlık kontrolü |
 
 ---
 
-## 8. Utils Paketi (src.utils)
+## 8. Yardımcı Paket (src.utils)
 
-### 8.1 Class Diyagramı
+### 8.1 Sınıf Diyagramı
 
 ```mermaid
 classDiagram
     direction TB
     
     class CheckpointValidator {
-        <<module>>
         +validate_checkpoint(path, expected_dim) bool
         +validate_all_checkpoints(checkpoint_dict, strict) Dict
         +compute_mapping_fingerprint() str
-        +CheckpointMismatchError
-        +MappingDriftError
     }
     
     class SafeModelLoader {
-        <<module>>
         +load_model_safe(path, model_class, config) Module
         +normalize_state_dict(state_dict) Dict
         +get_output_dimension(state_dict) int
     }
     
     class Metrics {
-        <<module>>
         +compute_auroc(y_true, y_prob) float
         +compute_auprc(y_true, y_prob) float
         +compute_f1(y_true, y_pred) float
         +compute_multilabel_metrics(y_true, y_pred) Dict
     }
     
-    CheckpointValidator --> SafeModelLoader : uses
+    CheckpointValidator --> SafeModelLoader : kullanır
 ```
+
+### 8.2 İstisna Sınıfları
+
+| İstisna | Açıklama |
+|---------|----------|
+| CheckpointMismatchError | Kontrol noktası boyut uyuşmazlığı |
+| MappingDriftError | MI eşleme parmak izi değişikliği |
 
 ---
 
@@ -701,7 +631,7 @@ classDiagram
 
 ```mermaid
 graph TB
-    subgraph External["Harici Kütüphaneler"]
+    subgraph Harici_Kutuphaneler["Harici Kütüphaneler"]
         TORCH["PyTorch"]
         NUMPY["NumPy"]
         PANDAS["Pandas"]
@@ -710,47 +640,62 @@ graph TB
         SHAP["SHAP"]
     end
     
-    subgraph Internal["İç Paketler"]
-        MODELS --> TORCH
-        DATA --> NUMPY & PANDAS
-        PIPELINE --> MODELS & DATA
-        XAI --> TORCH & SHAP
-        BACKEND --> FASTAPI & PIPELINE
-        CONTRACTS --> DATA
+    subgraph Ic_Paketler["İç Paketler"]
+        MODELS["src.models"]
+        DATA["src.data"]
+        PIPELINE["src.pipeline"]
+        XAI["src.xai"]
+        BACKEND["src.backend"]
+        CONTRACTS["src.contracts"]
     end
     
-    style TORCH fill:#ee6c4d
-    style NUMPY fill:#3d5a80
-    style PANDAS fill:#3d5a80
-    style FASTAPI fill:#457b9d
-    style XGBOOST fill:#2a9d8f
-    style SHAP fill:#e9c46a
+    MODELS --> TORCH
+    DATA --> NUMPY
+    DATA --> PANDAS
+    PIPELINE --> MODELS
+    PIPELINE --> DATA
+    XAI --> TORCH
+    XAI --> SHAP
+    BACKEND --> FASTAPI
+    BACKEND --> PIPELINE
 ```
 
 ---
 
 ## 10. Tasarım Prensipleri
 
-### 10.1 SOLID Prensipleri
+### 10.1 SOLID Prensipleri Uygulaması
 
-| Prensip | Uygulama |
-|---------|----------|
-| **Single Responsibility** | Her sınıf tek bir sorumluluğa sahip (ör. GradCAM sadece heatmap üretir) |
-| **Open/Closed** | Head sınıfları genişletilebilir (FiveClassHead extends MultiClassHead) |
-| **Liskov Substitution** | Tüm Head sınıfları nn.Module'den türetilmiş ve değiştirilebilir |
-| **Interface Segregation** | Küçük, odaklı arayüzler (SHAPExplainer abstract class) |
-| **Dependency Inversion** | Üst seviye modüller soyutlamalara bağımlı |
+| Prensip | Açıklama | Uygulama Örneği |
+|---------|----------|-----------------|
+| Tek Sorumluluk | Her sınıf tek bir sorumluluğa sahiptir | GradCAM yalnızca ısı haritası üretir |
+| Açık/Kapalı | Sınıflar genişletmeye açık, değişikliğe kapalıdır | FiveClassHead, MultiClassHead sınıfını genişletir |
+| Liskov Yerine Koyma | Alt sınıflar üst sınıfların yerine kullanılabilir | Tüm Head sınıfları nn.Module türevlidir |
+| Arayüz Ayrımı | Küçük, odaklı arayüzler | SHAPExplainer soyut sınıfı |
+| Bağımlılık Tersine Çevirme | Yüksek seviye modüller soyutlamalara bağımlıdır | Pipeline, Model arayüzlerine bağımlıdır |
 
-### 10.2 Tasarım Desenleri
+### 10.2 Uygulanan Tasarım Desenleri
 
-| Desen | Kullanım Yeri |
-|-------|---------------|
-| **Factory** | `build_classification_head()`, `build_sequential_cnn()` |
-| **Strategy** | Farklı Head tipleri (BinaryHead, MultiClassHead) |
-| **Singleton** | AppState (global state) |
-| **Observer** | GradCAM hook mekanizması |
-| **Facade** | AIResultMapper (karmaşık mapping işlemini basitleştirir) |
+| Desen | Kullanım Yeri | Açıklama |
+|-------|---------------|----------|
+| Fabrika (Factory) | build_classification_head() | Tip parametresine göre uygun head sınıfı oluşturur |
+| Strateji (Strategy) | Head sınıfları | Farklı sınıflandırma stratejileri |
+| Tekil (Singleton) | AppState | Global uygulama durumu |
+| Gözlemci (Observer) | GradCAM hook mekanizması | İleri ve geri yayılım olaylarını dinler |
+| Cephe (Facade) | AIResultMapper | Karmaşık eşleme işlemini basitleştirir |
 
 ---
 
-> **Not:** Bu class diyagramı CardioGuard-AI v1.0.0 mimarisini yansıtmaktadır. Gelecek versiyonlarda Transformer-based modeller ve RAG entegrasyonu için yeni sınıflar eklenecektir.
+## Onay Sayfası
+
+| Rol | Ad Soyad | Tarih | İmza |
+|-----|----------|-------|------|
+| Yazılım Mimarı | | | |
+| Teknik Lider | | | |
+| Kalite Güvence Mühendisi | | | |
+
+---
+
+**Doküman Sonu**
+
+*Bu sınıf diyagramı CardioGuard-AI v1.0.0 mimarisini yansıtmaktadır. Gelecek versiyonlarda Transformer tabanlı modeller ve RAG entegrasyonu için yeni sınıflar eklenecektir.*
