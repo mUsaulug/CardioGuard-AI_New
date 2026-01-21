@@ -11,24 +11,42 @@
 
 ---
 
-## İçindekiler
+## 1. Genel Bakış
 
-1. [Model Paketi](#1-model-paketi)
-2. [Veri Paketi](#2-veri-paketi)
-3. [Pipeline Paketi](#3-pipeline-paketi)
-4. [XAI Paketi](#4-xai-paketi)
-5. [Backend Paketi](#5-backend-paketi)
-6. [Paket Bağımlılıkları](#6-paket-bağımlılıkları)
-7. [Planlanan Sınıflar](#7-planlanan-sınıflar)
+CardioGuard-AI, modüler bir mimari üzerine inşa edilmiştir. Sistem, birbirine bağımlı ancak ayrı sorumluluklar taşıyan yedi ana paketten oluşmaktadır. Bu doküman, her paketin sınıf yapısını UML standartlarına uygun şekilde tanımlamaktadır.
+
+### 1.1 Paket Bağımlılıkları
+
+```mermaid
+graph TD
+    BACKEND["src.backend<br/>Web Servisi"]
+    PIPELINE["src.pipeline<br/>İş Akışları"]
+    MODELS["src.models<br/>Model Tanımları"]
+    DATA["src.data<br/>Veri İşleme"]
+    XAI["src.xai<br/>Açıklanabilirlik"]
+    CONTRACTS["src.contracts<br/>API Kontratları"]
+    UTILS["src.utils<br/>Yardımcılar"]
+    
+    BACKEND --> PIPELINE
+    BACKEND --> CONTRACTS
+    PIPELINE --> MODELS
+    PIPELINE --> DATA
+    PIPELINE --> XAI
+    XAI --> MODELS
+    CONTRACTS --> DATA
+    MODELS --> UTILS
+```
 
 ---
 
-## 1. Model Paketi (src.models)
+## 2. Model Paketi (src.models)
+
+Model paketi, EKG sinyallerini analiz eden derin öğrenme modellerini içermektedir. Merkezi bileşen olan ECGBackbone, tüm modeller tarafından paylaşılan özellik çıkarıcı olarak görev yapmaktadır.
+
+### 2.1 Sınıf Diyagramı
 
 ```mermaid
 classDiagram
-    direction TB
-    
     class ECGCNNConfig {
         <<dataclass>>
         +int in_channels = 12
@@ -47,20 +65,17 @@ classDiagram
     class BinaryHead {
         <<nn.Module>>
         -Linear classifier
-        +__init__(in_features)
         +forward(x) Tensor
     }
     
     class MultiClassHead {
         <<nn.Module>>
         -Linear classifier
-        +__init__(in_features, num_classes)
         +forward(x) Tensor
     }
     
     class FiveClassHead {
         <<nn.Module>>
-        +__init__(in_features)
         +forward(x) Tensor
     }
     
@@ -68,7 +83,6 @@ classDiagram
         <<nn.Module>>
         +ECGBackbone backbone
         +Module head
-        +__init__(config, num_classes)
         +forward(x) Tensor
     }
     
@@ -79,82 +93,92 @@ classDiagram
     FiveClassHead --|> MultiClassHead
 ```
 
-### Model Varyantları
+### 2.2 Model Varyantları
 
-| Model | Çıktı | Head Tipi | Kullanım |
-|-------|-------|-----------|----------|
-| Binary MI | 1 | BinaryHead | MI vs Normal sınıflandırma |
-| Superclass | 4 | MultiClassHead | MI, STTC, CD, HYP çoklu-etiket |
-| Lokalizasyon | 5 | FiveClassHead | AMI, ASMI, ALMI, IMI, LMI bölge tespiti |
+| Model | Head Tipi | Çıktı | Kullanım Amacı |
+|-------|-----------|-------|----------------|
+| Binary MI | BinaryHead | 1 | MI vs Normal sınıflandırma |
+| Superclass | MultiClassHead | 4 | MI, STTC, CD, HYP çoklu-etiket |
+| Lokalizasyon | FiveClassHead | 5 | 5 anatomik bölge tespiti |
+
+### 2.3 ECGBackbone Mimarisi
+
+ECGBackbone, 12 derivasyonlu EKG sinyallerinden 64 boyutlu gömme vektörü çıkaran evrişimsel sinir ağıdır.
+
+| Katman | Tip | Parametreler |
+|--------|-----|--------------|
+| 1 | Conv1d | 12→64, kernel=7 |
+| 2 | BatchNorm1d | 64 |
+| 3 | ReLU | - |
+| 4 | Dropout | p=0.3 |
+| 5 | Conv1d | 64→64, kernel=7 |
+| 6 | BatchNorm1d | 64 |
+| 7 | ReLU | - |
+| 8 | Dropout | p=0.3 |
+| 9 | AdaptiveAvgPool1d | output=1 |
 
 ---
 
-## 2. Veri Paketi (src.data)
+## 3. Veri Paketi (src.data)
+
+Veri paketi, PTB-XL veri setinin yüklenmesi, etiketlenmesi ve ön işlenmesinden sorumludur.
+
+### 3.1 Sınıf Diyagramı
 
 ```mermaid
 classDiagram
-    direction TB
-    
     class SignalDataset {
         <<Dataset>>
         -DataFrame df
         -Path base_path
-        -str label_column
-        -callable transform
-        +__init__(df, base_path, ...)
-        +__len__() int
-        +__getitem__(idx) Tuple
-    }
-    
-    class CachedSignalDataset {
-        <<Dataset>>
-        -ndarray signals
-        -ndarray ecg_ids
-        -Dict labels
-        +__init__(signals, ecg_ids, labels)
         +__len__() int
         +__getitem__(idx) Tuple
     }
     
     class LabelProcessor {
-        +add_binary_mi_labels(df, scp_df) DataFrame
-        +add_superclass_labels(df, scp_df) DataFrame
-        +extract_codes_above_threshold(scp_codes, threshold) Set
+        +add_binary_mi_labels()
+        +add_superclass_labels()
     }
     
     class MILocalizationProcessor {
-        +List MI_LOCALIZATION_REGIONS
-        +Dict MI_CODE_TO_REGIONS
-        +extract_mi_regions(scp_codes) List
-        +extract_mi_localization_labels(df) ndarray
-        +get_mi_localization_mask(y_multi4) ndarray
+        +List MI_REGIONS
+        +extract_mi_regions()
+        +get_localization_mask()
     }
     
     class SignalLoader {
-        +load_single_signal(filename, base_path) ndarray
-        +load_signals_batch(df, base_path) ndarray
-        +build_npz_cache(df, base_path, cache_path)
+        +load_single_signal()
+        +load_signals_batch()
     }
     
     class Normalizer {
-        +min_max_normalize(signal) ndarray
-        +per_lead_normalize(signal) ndarray
+        +min_max_normalize()
+        +per_lead_normalize()
     }
     
     SignalDataset ..> SignalLoader
     SignalDataset ..> LabelProcessor
-    CachedSignalDataset ..> Normalizer
     MILocalizationProcessor --|> LabelProcessor
 ```
 
+### 3.2 Etiketleme Stratejileri
+
+| Strateji | Açıklama | Kullanım |
+|----------|----------|----------|
+| Binary | MI=1, NORM=0 | Binary MI modeli |
+| Superclass | 4 sınıf multi-hot | Superclass modeli |
+| Lokalizasyon | 5 bölge multi-hot | MI lokalizasyon modeli |
+
 ---
 
-## 3. Pipeline Paketi (src.pipeline)
+## 4. Pipeline Paketi (src.pipeline)
+
+Pipeline paketi, model eğitimi ve çıkarım iş akışlarını yönetmektedir.
+
+### 4.1 Tutarlılık Kontrolü Sınıfları
 
 ```mermaid
 classDiagram
-    direction TB
-    
     class AgreementType {
         <<enumeration>>
         AGREE_MI
@@ -167,99 +191,92 @@ classDiagram
         <<dataclass>>
         +float superclass_mi_prob
         +float binary_mi_prob
-        +bool superclass_mi_decision
-        +bool binary_mi_decision
         +AgreementType agreement
         +str triage_level
-        +List warnings
         +to_dict() Dict
     }
     
     class ConsistencyGuard {
-        +check_consistency(super_prob, binary_prob) ConsistencyResult
-        +should_run_localization(consistency) bool
-        +derive_norm_from_superclass(probs) Dict
+        +check_consistency()
+        +should_run_localization()
+        +derive_norm()
     }
     
     ConsistencyResult *-- AgreementType
     ConsistencyGuard ..> ConsistencyResult
 ```
 
-### Uyum Tipleri Açıklaması
+### 4.2 Uyum Tipleri
 
-| Tip | Super MI | Binary MI | Triaj | Yorum |
-|-----|----------|-----------|-------|-------|
-| AGREE_MI | Pozitif | Pozitif | Yüksek | Her iki model MI tespit etti |
-| AGREE_NO_MI | Negatif | Negatif | Düşük | Her iki model normal buldu |
-| DISAGREE_TYPE_1 | Pozitif | Negatif | İnceleme | Düşük güvenlikli MI |
-| DISAGREE_TYPE_2 | Negatif | Pozitif | İnceleme | Olası kaçırılmış MI |
+| Tip | Super MI | Binary MI | Triaj | Aksiyon |
+|-----|----------|-----------|-------|---------|
+| AGREE_MI | + | + | Yüksek | Lokalizasyon çalıştır |
+| AGREE_NO_MI | - | - | Düşük | Normal raporla |
+| DISAGREE_TYPE_1 | + | - | İnceleme | Lokalizasyon çalıştır |
+| DISAGREE_TYPE_2 | - | + | İnceleme | Manuel inceleme |
 
 ---
 
-## 4. XAI Paketi (src.xai)
+## 5. XAI Paketi (src.xai)
+
+Açıklanabilir yapay zeka paketi, model kararlarının görselleştirilmesini sağlar.
+
+### 5.1 Sınıf Diyagramı
 
 ```mermaid
 classDiagram
-    direction TB
-    
     class GradCAM {
         -Module model
-        -Module target_layer
         -Tensor gradients
         -Tensor activations
-        +__init__(model, target_layer)
-        +generate(inputs, class_index) ndarray
+        +generate() ndarray
     }
     
     class SHAPExplainer {
         <<abstract>>
-        +explain(model, X) ndarray
+        +explain() ndarray
     }
     
     class SHAPXGBExplainer {
         -TreeExplainer explainer
-        +__init__(model)
-        +explain_single(x) ndarray
-        +explain_batch(X) ndarray
-        +get_feature_importance() Dict
-    }
-    
-    class SHAPOVRExplainer {
-        -Dict explainers
-        +__init__(models_dict)
-        +explain_per_class(x) Dict
+        +explain_single()
+        +get_feature_importance()
     }
     
     class XAIVisualizer {
-        +plot_gradcam_overlay(signal, cam, class_name) Figure
-        +plot_shap_summary(shap_values, feature_names) Figure
-        +save_artifacts(run_dir)
+        +plot_gradcam_overlay()
+        +plot_shap_summary()
     }
     
     SHAPXGBExplainer --|> SHAPExplainer
-    SHAPOVRExplainer --|> SHAPExplainer
     XAIVisualizer ..> GradCAM
     XAIVisualizer ..> SHAPExplainer
 ```
 
+### 5.2 Açıklama Yöntemleri
+
+| Yöntem | Model | Çıktı | Görselleştirme |
+|--------|-------|-------|----------------|
+| Grad-CAM | CNN | Isı haritası | Sinyal üzeri overlay |
+| SHAP | XGBoost | Özellik önemi | Çubuk grafik |
+
 ---
 
-## 5. Backend Paketi (src.backend)
+## 6. Backend Paketi (src.backend)
+
+Backend paketi, FastAPI tabanlı REST API servisini içermektedir.
+
+### 6.1 Sınıf Diyagramı
 
 ```mermaid
 classDiagram
-    direction TB
-    
     class AppState {
         +Module superclass_model
         +Module binary_model
         +Module localization_model
         +Dict xgb_models
-        +Dict calibrators
-        +StandardScaler scaler
-        +Dict thresholds
         +bool is_loaded
-        +load_models(paths)
+        +load_models()
     }
     
     class PredictionProbabilities {
@@ -276,47 +293,21 @@ classDiagram
         +str mode
         +PredictionProbabilities probabilities
         +List predicted_labels
-        +Dict thresholds
-        +str primary_label
         +str triage_level
-    }
-    
-    class MILocalizationResponse {
-        <<Pydantic>>
-        +bool mi_detected
-        +Dict region_probabilities
-        +List detected_regions
-        +str mapping_fingerprint
     }
     
     SuperclassPredictionResponse *-- PredictionProbabilities
     AppState ..> SuperclassPredictionResponse
-    AppState ..> MILocalizationResponse
 ```
 
----
+### 6.2 API Endpoints
 
-## 6. Paket Bağımlılıkları
-
-```mermaid
-graph TD
-    BACKEND["src.backend"]
-    PIPELINE["src.pipeline"]
-    MODELS["src.models"]
-    DATA["src.data"]
-    XAI["src.xai"]
-    CONTRACTS["src.contracts"]
-    UTILS["src.utils"]
-    
-    BACKEND --> PIPELINE
-    BACKEND --> CONTRACTS
-    PIPELINE --> MODELS
-    PIPELINE --> DATA
-    PIPELINE --> XAI
-    XAI --> MODELS
-    CONTRACTS --> DATA
-    MODELS --> UTILS
-```
+| Endpoint | Metod | Response Sınıfı |
+|----------|-------|-----------------|
+| /predict/superclass | POST | SuperclassPredictionResponse |
+| /predict/mi-localization | POST | MILocalizationResponse |
+| /health | GET | HealthResponse |
+| /ready | GET | ReadyResponse |
 
 ---
 
@@ -324,37 +315,27 @@ graph TD
 
 ```mermaid
 classDiagram
-    direction TB
-    
     class RAGRetriever {
         <<planned>>
-        -VectorStore store
-        -Embedder embedder
-        +retrieve_context(query) List
-        +embed_query(text) ndarray
+        +retrieve_context()
+        +embed_query()
     }
     
     class UncertaintyEstimator {
         <<planned>>
-        -int n_iterations
-        +mc_dropout_inference(model, x) Dict
-        +compute_confidence_interval(samples) Tuple
+        +mc_dropout_inference()
+        +compute_confidence_interval()
     }
     
     class LLMReportGenerator {
         <<planned>>
-        -str model_name
-        -RAGRetriever retriever
-        +generate_clinical_report(predictions, context) str
-        +format_findings(predictions) Dict
+        +generate_clinical_report()
     }
     
     class TransformerBackbone {
         <<planned>>
-        -MultiHeadAttention attention
-        -PositionalEncoding pos_enc
-        +forward(x) Tensor
-        +get_attention_weights() Tensor
+        +forward()
+        +get_attention_weights()
     }
     
     RAGRetriever ..> LLMReportGenerator
@@ -365,13 +346,12 @@ classDiagram
 
 ## 8. UML Notasyonu
 
-| Sembol | Anlam |
-|--------|-------|
-| `*--` | Kompozisyon (parça bütüne bağımlı) |
-| `o--` | Agregasyon (parça bağımsız yaşayabilir) |
-| `--|>` | Kalıtım (generalization) |
-| `..>` | Bağımlılık (dependency) |
-| `-->` | Birliktelik (association) |
+| Sembol | Anlam | Açıklama |
+|--------|-------|----------|
+| `*--` | Kompozisyon | Parça bütüne bağımlı yaşar |
+| `o--` | Agregasyon | Parça bağımsız yaşayabilir |
+| `--|>` | Kalıtım | Alt sınıf üst sınıftan türer |
+| `..>` | Bağımlılık | Geçici kullanım ilişkisi |
 
 ---
 
@@ -381,7 +361,6 @@ classDiagram
 |-----|----------|-------|------|
 | Yazılım Mimarı | | | |
 | Teknik Lider | | | |
-| Kalite Güvence Mühendisi | | | |
 
 ---
 

@@ -1,5 +1,5 @@
 # CardioGuard-AI
-# Kullanım Senaryoları Diyagramı
+# Kullanım Senaryoları Dokümanı
 
 ---
 
@@ -11,23 +11,17 @@
 
 ---
 
-## İçindekiler
-
-1. [Aktörler](#1-aktörler)
-2. [Kullanım Senaryoları Diyagramı](#2-kullanım-senaryoları-diyagramı)
-3. [Senaryo Detayları](#3-senaryo-detayları)
-4. [İlişkiler ve Öncelikler](#4-ilişkiler-ve-öncelikler)
-
----
-
 ## 1. Aktörler
 
-| Aktör | Tip | Açıklama | Rol |
-|-------|-----|----------|-----|
-| Klinisyen | Birincil | Hastane doktoru veya kardiyolog | EKG analizi talep eder, sonuçları yorumlar |
-| ML Mühendisi | Birincil | Makine öğrenimi uzmanı | Model eğitimi ve optimizasyonu yapar |
-| Sistem Yöneticisi | Birincil | BT operasyon personeli | Sistem bakımı ve izleme yapar |
-| Zamanlayıcı | İkincil | Otomatik görev planlayıcı | Periyodik görevleri tetikler |
+### 1.1 Aktör Tanımları
+
+| Aktör | Tip | Açıklama | Sorumluluklar |
+|-------|-----|----------|---------------|
+| **Klinisyen** | Birincil | Kardiyolog veya acil servis doktoru | EKG yükleme, sonuç yorumlama, XAI inceleme |
+| **ML Mühendisi** | Birincil | Makine öğrenimi uzmanı | Model eğitimi, performans optimizasyonu |
+| **Sistem Yöneticisi** | Birincil | BT operasyon personeli | Sistem izleme, günlük analizi |
+| **Zamanlayıcı** | İkincil | Otomatik görev planlayıcı | Periyodik sağlık kontrolleri |
+| **Harici Sistemler** | İkincil | HIS, PACS, LIS | Veri entegrasyonu |
 
 ---
 
@@ -43,31 +37,31 @@ graph TD
     end
     
     subgraph Sistem["CardioGuard-AI Sistemi"]
-        subgraph Klinik["Klinik Kullanım Senaryoları"]
-            UC1["US-01<br/>EKG Sinyali Yükleme"]
-            UC2["US-02<br/>Patoloji Tespiti"]
-            UC3["US-03<br/>MI Lokalizasyonu"]
-            UC4["US-04<br/>Sonuç Raporlama"]
-            UC5["US-05<br/>XAI Görüntüleme"]
-            UC9["US-09<br/>Triaj Belirleme"]
+        subgraph Klinik["Klinik Senaryolar"]
+            UC1["US-01: EKG Yükleme"]
+            UC2["US-02: Patoloji Tespiti"]
+            UC3["US-03: MI Lokalizasyonu"]
+            UC4["US-04: Sonuç Raporlama"]
+            UC5["US-05: XAI Görüntüleme"]
+            UC9["US-09: Triaj Belirleme"]
         end
         
-        subgraph Gelistirme["Geliştirme Kullanım Senaryoları"]
-            UC6["US-06<br/>Model Eğitimi"]
-            UC10["US-10<br/>Model Değerlendirme"]
-            UC11["US-11<br/>Hiperparametre Opt."]
+        subgraph Gelistirme["Geliştirme Senaryolar"]
+            UC6["US-06: Model Eğitimi"]
+            UC10["US-10: Model Değerlendirme"]
+            UC11["US-11: Hiperparametre Opt."]
         end
         
-        subgraph Operasyon["Operasyon Kullanım Senaryoları"]
-            UC7["US-07<br/>Checkpoint Yönetimi"]
-            UC8["US-08<br/>Sağlık Kontrolü"]
-            UC12["US-12<br/>Günlük İzleme"]
+        subgraph Operasyon["Operasyon Senaryolar"]
+            UC7["US-07: Checkpoint Yönetimi"]
+            UC8["US-08: Sağlık Kontrolü"]
+            UC12["US-12: Günlük İzleme"]
         end
         
-        subgraph Planlanan["Planlanan Senaryolar v2.0"]
-            UC13["US-13<br/>RAG Entegrasyonu"]
-            UC14["US-14<br/>Belirsizlik Tahmini"]
-            UC15["US-15<br/>LLM Rapor Üretimi"]
+        subgraph Planlanan["Planlanan v2.0"]
+            UC13["US-13: RAG Entegrasyonu"]
+            UC14["US-14: Belirsizlik Tahmini"]
+            UC15["US-15: LLM Rapor Üretimi"]
         end
     end
     
@@ -78,7 +72,6 @@ graph TD
     A2 --> UC6
     A2 --> UC7
     A2 --> UC10
-    A2 --> UC11
     
     A3 --> UC7
     A3 --> UC8
@@ -86,76 +79,145 @@ graph TD
     
     A4 --> UC8
     
-    UC1 -.->|≪include≫| UC2
-    UC2 -.->|≪include≫| UC9
-    UC2 -.->|≪extend≫| UC3
-    UC2 -.->|≪include≫| UC4
-    UC4 -.->|≪extend≫| UC5
-    UC4 -.->|≪extend≫| UC15
+    UC1 -.->|include| UC2
+    UC2 -.->|include| UC9
+    UC2 -.->|extend| UC3
+    UC2 -.->|include| UC4
+    UC4 -.->|extend| UC5
 ```
 
 ---
 
 ## 3. Senaryo Detayları
 
-### 3.1 Klinik Senaryolar
+### US-01: EKG Sinyali Yükleme
 
-| ID | Ad | Aktör | Ön Koşul | Son Koşul |
-|----|-----|-------|----------|-----------|
-| US-01 | EKG Sinyali Yükleme | Klinisyen | Kullanıcı sisteme bağlı | Sinyal normalize edilmiş |
-| US-02 | Patoloji Tespiti | Sistem | Sinyal yüklenmiş | Olasılıklar üretilmiş |
-| US-03 | MI Lokalizasyonu | Sistem | MI tespit edilmiş | Bölgeler belirlenmiş |
-| US-04 | Sonuç Raporlama | Klinisyen | Tahmin tamamlanmış | AIResult üretilmiş |
-| US-05 | XAI Görüntüleme | Klinisyen | XAI etkin | Görsel açıklamalar hazır |
-| US-09 | Triaj Belirleme | Sistem | Tutarlılık kontrolü yapılmış | Triaj seviyesi atanmış |
+| Özellik | Değer |
+|---------|-------|
+| **Tanımlayıcı** | US-01 |
+| **Aktör** | Klinisyen |
+| **Öncelik** | Yüksek |
+| **Ön Koşul** | Kullanıcı sisteme bağlı |
+| **Son Koşul** | Sinyal normalize edilmiş |
 
-### 3.2 Geliştirme Senaryoları
+**Temel Akış:**
+1. Klinisyen EKG dosyasını seçer (.npz/.npy)
+2. Sistem format kontrolü yapar
+3. Sistem boyut doğrulaması yapar (12×1000)
+4. Sistem MinMax normalizasyonu uygular
+5. US-02 Patoloji Tespiti tetiklenir
 
-| ID | Ad | Aktör | Ön Koşul | Son Koşul |
-|----|-----|-------|----------|-----------|
-| US-06 | Model Eğitimi | ML Mühendisi | PTB-XL veri seti hazır | Checkpoint dosyaları üretilmiş |
-| US-10 | Model Değerlendirme | ML Mühendisi | Model eğitilmiş | Metrikler hesaplanmış |
-| US-11 | Hiperparametre Opt. | ML Mühendisi | Baseline model mevcut | Optimal parametreler bulunmuş |
-
-### 3.3 Operasyon Senaryoları
-
-| ID | Ad | Aktör | Ön Koşul | Son Koşul |
-|----|-----|-------|----------|-----------|
-| US-07 | Checkpoint Yönetimi | ML Müh. / Sys Admin | Checkpoint dosyaları mevcut | Modeller doğrulanmış |
-| US-08 | Sağlık Kontrolü | Sistem Yöneticisi | API çalışıyor | Durum bilgisi alınmış |
-| US-12 | Günlük İzleme | Sistem Yöneticisi | Loglama aktif | Günlükler incelenmiş |
-
-### 3.4 Planlanan Senaryolar (v2.0)
-
-| ID | Ad | Açıklama | Hedef Versiyon |
-|----|-----|----------|----------------|
-| US-13 | RAG Entegrasyonu | Klinik kılavuzlar ile zenginleştirilmiş sonuçlar | v2.0 |
-| US-14 | Belirsizlik Tahmini | Monte Carlo Dropout ile güven aralığı | v2.0 |
-| US-15 | LLM Rapor Üretimi | Büyük dil modeli ile otomatik klinik rapor | v2.0 |
+**Alternatif Akışlar:**
+- 2a. Geçersiz format → HTTP 400 hatası
+- 3a. Yanlış boyut → HTTP 400 hatası
 
 ---
 
-## 4. İlişkiler ve Öncelikler
+### US-02: Patoloji Tespiti
 
-### 4.1 Senaryo İlişkileri
+| Özellik | Değer |
+|---------|-------|
+| **Tanımlayıcı** | US-02 |
+| **Aktör** | Sistem |
+| **Öncelik** | Yüksek |
+| **Ön Koşul** | Sinyal yüklenmiş |
+| **Son Koşul** | Olasılıklar üretilmiş |
 
-| Kaynak | Hedef | İlişki Tipi | Açıklama |
-|--------|-------|-------------|----------|
-| US-01 | US-02 | ≪include≫ | EKG yükleme, patoloji tespitini tetikler |
-| US-02 | US-09 | ≪include≫ | Patoloji tespiti, triaj belirlemeyi tetikler |
-| US-02 | US-03 | ≪extend≫ | MI tespit edilirse lokalizasyon çalışır |
-| US-02 | US-04 | ≪include≫ | Tahmin sonrası raporlama yapılır |
-| US-04 | US-05 | ≪extend≫ | XAI etkinse açıklamalar gösterilir |
-| US-04 | US-15 | ≪extend≫ | LLM aktifse otomatik rapor üretilir |
+**Hibrit Pipeline:**
 
-### 4.2 Öncelik Matrisi
+| Aşama | Model | Giriş | Çıkış |
+|-------|-------|-------|-------|
+| 1 | Superclass CNN | Sinyal | 4 sınıf olasılığı |
+| 2 | Binary MI CNN | Sinyal | MI olasılığı |
+| 3 | XGBoost (×4) | 64-dim gömme | 4 sınıf olasılığı |
+| 4 | Ensemble | P_cnn, P_xgb | P_final |
 
-| Öncelik | Senaryolar | Durum |
-|---------|------------|-------|
-| Yüksek | US-01, US-02, US-03, US-04, US-06, US-07, US-09 | ✓ Tamamlandı |
-| Orta | US-05, US-08, US-10, US-12 | ✓ Tamamlandı |
-| Düşük | US-11 | ✓ Tamamlandı |
-| Planlanan | US-13, US-14, US-15 | ○ v2.0'da |
+**Ensemble Formülü:** `P = 0.15 × P_cnn + 0.85 × P_xgb`
+
+---
+
+### US-03: MI Lokalizasyonu
+
+| Özellik | Değer |
+|---------|-------|
+| **Tanımlayıcı** | US-03 |
+| **Aktör** | Sistem |
+| **Öncelik** | Yüksek |
+| **Ön Koşul** | MI tespit edilmiş |
+| **Son Koşul** | Bölgeler belirlenmiş |
+
+**Anatomik Bölgeler:**
+
+| Bölge | Açıklama | Koroner Arter |
+|-------|----------|---------------|
+| AMI | Anterior MI | LAD |
+| ASMI | Anteroseptal MI | LAD septal |
+| ALMI | Anterolateral MI | LAD/LCx |
+| IMI | Inferior MI | RCA/LCx |
+| LMI | Lateral MI | LCx |
+
+---
+
+### US-04: Sonuç Raporlama
+
+| Özellik | Değer |
+|---------|-------|
+| **Tanımlayıcı** | US-04 |
+| **Aktör** | Klinisyen |
+| **Çıktı Formatı** | AIResult v1.0 JSON |
+
+**Rapor Bölümleri:**
+- identity: Tanımlama bilgileri
+- predictions: Patoloji olasılıkları
+- localization: MI bölgeleri
+- triage: Triaj seviyesi
+- explanations: XAI dosya yolları
+
+---
+
+### US-09: Triaj Belirleme
+
+**Triaj Karar Matrisi:**
+
+| Tahmin | Tutarlılık | Triaj | Aksiyon |
+|--------|------------|-------|---------|
+| MI | AGREE_MI | YÜKSEK | Acil konsültasyon |
+| MI | DISAGREE | İNCELEME | Kıdemli değerlendirme |
+| Diğer | - | ORTA | Standart değerlendirme |
+| Normal | AGREE_NO_MI | DÜŞÜK | Rutin takip |
+
+---
+
+## 4. Senaryo İlişkileri
+
+| Kaynak | Hedef | İlişki | Koşul |
+|--------|-------|--------|-------|
+| US-01 | US-02 | include | Her zaman |
+| US-02 | US-09 | include | Her zaman |
+| US-02 | US-03 | extend | MI tespit edilirse |
+| US-02 | US-04 | include | Her zaman |
+| US-04 | US-05 | extend | XAI etkinse |
+
+---
+
+## 5. Öncelik Matrisi
+
+| Öncelik | Senaryolar | Versiyon |
+|---------|------------|----------|
+| Yüksek | US-01, US-02, US-03, US-04, US-06, US-07, US-09 | v1.0 |
+| Orta | US-05, US-08, US-10 | v1.0 |
+| Düşük | US-11, US-12 | v1.1 |
+| Planlanan | US-13, US-14, US-15 | v2.0 |
+
+---
+
+## 6. Planlanan Senaryolar (v2.0)
+
+| ID | Ad | Açıklama |
+|----|-----|----------|
+| US-13 | RAG Entegrasyonu | Klinik kılavuzlar ile zenginleştirilmiş sonuçlar |
+| US-14 | Belirsizlik Tahmini | Monte Carlo Dropout ile güven aralığı |
+| US-15 | LLM Rapor Üretimi | Büyük dil modeli ile otomatik klinik rapor |
 
 ---
 
@@ -165,7 +227,6 @@ graph TD
 |-----|----------|-------|------|
 | Proje Yöneticisi | | | |
 | Teknik Lider | | | |
-| Kalite Güvence Mühendisi | | | |
 
 ---
 

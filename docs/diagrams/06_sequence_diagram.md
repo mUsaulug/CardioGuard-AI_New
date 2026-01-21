@@ -4,405 +4,292 @@
 ---
 
 **Proje Adı:** CardioGuard-AI  
-**Doküman Tipi:** Sıralı Akış Diyagramları (Sequence Diagrams)  
+**Doküman Tipi:** Sıralı Akış Diyagramları  
 **Versiyon:** 1.0.0  
 **Tarih:** 21 Ocak 2026  
 **Hazırlayan:** CardioGuard-AI Geliştirme Ekibi
 
 ---
 
-## İçindekiler
-
-1. [Ana Tahmin Akışı](#1-ana-tahmin-akışı)
-2. [Sistem Başlatma Akışı](#2-sistem-başlatma-akışı)
-3. [Tutarlılık Kontrolü](#3-tutarlılık-kontrolü)
-4. [XGBoost Hibrit Pipeline](#4-xgboost-hibrit-pipeline)
-5. [Grad-CAM Üretimi](#5-grad-cam-üretimi)
-6. [Sağlık Kontrolü](#6-sağlık-kontrolü)
-7. [Hata Senaryoları](#7-hata-senaryoları)
-8. [Planlanan Akışlar](#8-planlanan-akışlar)
-
----
-
 ## 1. Ana Tahmin Akışı
+
+Bu diyagram, EKG sinyalinin yüklenmesinden sonuç üretilmesine kadar olan tam akışı göstermektedir.
+
+### 1.1 Akış Diyagramı
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Klinisyen
-    participant API as API Servisi
-    participant Norm as Normalleştirici
-    participant SuperCNN as Superclass CNN
-    participant BinaryCNN as Binary CNN
+    participant K as Klinisyen
+    participant API
+    participant CNN
     participant XGB as XGBoost
-    participant Guard as Tutarlılık Denetimi
-    participant LocCNN as Lokalizasyon CNN
-    participant XAI as Grad-CAM
-    participant Mapper as AIResult Eşleyici
+    participant Guard
+    participant Loc as Lokalizasyon
+    participant XAI
     
-    Klinisyen->>+API: POST /predict/superclass (EKG dosyası)
+    K->>API: POST /predict (EKG)
+    API->>API: Normalize Et
     
-    rect rgb(240, 248, 255)
-        Note over API, Norm: Faz 1: Girdi İşleme
-        API->>+Norm: normalize(sinyal)
-        Norm->>Norm: MinMax normalizasyonu (0-1)
-        Norm-->>-API: X_norm (12×1000)
+    par Paralel Tahmin
+        API->>CNN: Superclass
+        CNN-->>API: P_cnn
+    and
+        API->>CNN: Binary
+        CNN-->>API: P_binary
     end
     
-    rect rgb(255, 248, 240)
-        Note over API, XGB: Faz 2: Model Tahminleri
-        par Paralel CNN Çıkarımı
-            API->>+SuperCNN: forward(X_tensor)
-            SuperCNN-->>-API: P_cnn: MI, STTC, CD, HYP
-        and
-            API->>+BinaryCNN: forward(X_tensor)
-            BinaryCNN-->>-API: P_binary_MI
-        end
-        
-        API->>+XGB: predict_proba(gömme)
-        XGB-->>-API: P_xgb: MI, STTC, CD, HYP
-        
-        API->>API: Ensemble: P = 0.15×P_cnn + 0.85×P_xgb
+    API->>XGB: Gömme Tahmin
+    XGB-->>API: P_xgb
+    
+    API->>API: Ensemble
+    API->>Guard: Tutarlılık
+    Guard-->>API: Triaj
+    
+    alt MI Tespit
+        API->>Loc: Bölge Tespiti
+        Loc-->>API: 5 Bölge
     end
     
-    rect rgb(255, 240, 245)
-        Note over API, Guard: Faz 3: Tutarlılık Kontrolü
-        API->>+Guard: check_consistency(P_super_MI, P_binary_MI)
-        Guard->>Guard: Karar karşılaştırması
-        Guard-->>-API: ConsistencyResult, Triaj
-    end
+    API->>XAI: Grad-CAM
+    XAI-->>API: Isı Haritası
     
-    rect rgb(240, 255, 240)
-        Note over API, LocCNN: Faz 4: MI Lokalizasyonu (Koşullu)
-        alt MI Tespit Edildi
-            API->>+LocCNN: forward(X_tensor)
-            LocCNN-->>-API: P_loc: AMI, ASMI, ALMI, IMI, LMI
-        end
-    end
-    
-    rect rgb(255, 255, 240)
-        Note over API, XAI: Faz 5: XAI Üretimi
-        API->>+XAI: generate(X_tensor, class_index)
-        XAI->>XAI: İleri + Geri geçiş
-        XAI-->>-API: Isı haritası
-    end
-    
-    rect rgb(245, 240, 255)
-        Note over API, Mapper: Faz 6: Yanıt Oluşturma
-        API->>+Mapper: map_to_airesult(tahminler)
-        Mapper->>Mapper: NORM türetme, triaj
-        Mapper-->>-API: AIResult v1.0
-    end
-    
-    API-->>-Klinisyen: SuperclassPredictionResponse
+    API-->>K: AIResult v1.0
 ```
+
+### 1.2 Akış Açıklaması
+
+| Faz | Bileşenler | Açıklama |
+|-----|------------|----------|
+| 1. Girdi | API, Normalizer | Sinyal yükleme ve normalizasyon |
+| 2. Tahmin | CNN, XGBoost | Paralel model çıkarımı |
+| 3. Birleştirme | Ensemble | CNN ve XGB olasılıklarını birleştirme |
+| 4. Kontrol | ConsistencyGuard | Tutarlılık ve triaj belirleme |
+| 5. Lokalizasyon | Lokalizasyon CNN | MI bölge tespiti (koşullu) |
+| 6. Açıklama | GradCAM | XAI üretimi |
+| 7. Yanıt | AIResultMapper | JSON yanıt oluşturma |
 
 ---
 
 ## 2. Sistem Başlatma Akışı
 
+### 2.1 Akış Diyagramı
+
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Main as Ana Modül
-    participant App as FastAPI
-    participant Validator as Checkpoint Doğrulayıcı
-    participant Loader as Model Yükleyici
-    participant State as Uygulama Durumu
+    participant Main
+    participant Val as Doğrulayıcı
+    participant Loader
+    participant State
     
-    Main->>+App: FastAPI() oluştur
-    App->>App: CORS ve yönlendirme yapılandırması
-    App-->>-Main: app örneği
+    Main->>Val: Checkpoint Doğrula
     
-    Main->>+App: @on_event("startup")
-    
-    rect rgb(255, 240, 240)
-        Note over App, Validator: Hızlı Başarısızlık (Fail-Fast) Doğrulaması
-        App->>+Validator: validate_all_checkpoints(strict=True)
-        
-        loop Her Checkpoint (binary, superclass, localization)
-            Validator->>Validator: Dosya yükle
-            Validator->>Validator: Çıktı boyutu kontrolü
-            alt Boyut Uyuşmazlığı
-                Validator-->>App: CheckpointMismatchError
-                App->>App: sys.exit(1)
-            end
+    loop Her Model
+        Val->>Val: Boyut Kontrolü
+        alt Uyuşmazlık
+            Val-->>Main: Hata
+            Main->>Main: sys.exit(1)
         end
-        
-        Validator->>Validator: Mapping fingerprint kontrolü
-        alt Fingerprint Değişmiş
-            Validator-->>App: MappingDriftError
-            App->>App: sys.exit(1)
-        end
-        
-        Validator-->>-App: Tüm doğrulamalar başarılı
     end
     
-    rect rgb(240, 255, 240)
-        Note over App, State: Model Yükleme
-        App->>+State: load_models(yollar)
-        
-        State->>+Loader: load_model_safe(binary_path)
-        Loader-->>-State: binary_model
-        
-        State->>+Loader: load_model_safe(superclass_path)
-        Loader-->>-State: superclass_model
-        
-        State->>+Loader: load_model_safe(localization_path)
-        Loader-->>-State: localization_model
-        
-        State->>State: XGBoost modelleri yükle
-        State->>State: Kalibratörler ve eşikler yükle
-        
-        State->>State: is_loaded = True
-        State-->>-App: Modeller hazır
-    end
+    Val->>Val: Fingerprint Kontrolü
+    Val-->>Main: Doğrulama OK
     
-    App-->>-Main: Başlatma tamamlandı
+    Main->>Loader: Modelleri Yükle
+    Loader->>State: Binary CNN
+    Loader->>State: Superclass CNN
+    Loader->>State: Lokalizasyon CNN
+    Loader->>State: XGBoost
     
-    Note over Main, State: API :8000 portunda hazır
+    State-->>Main: Hazır
 ```
+
+### 2.2 Fail-Fast Mekanizması
+
+Sistem başlangıcında uygulanan doğrulama kontrolleri:
+
+| Kontrol | Açıklama | Başarısızlık Durumu |
+|---------|----------|---------------------|
+| Dosya Varlığı | Checkpoint dosyaları mevcut mu? | FileNotFoundError |
+| Boyut Uyumu | Model çıktı boyutu beklenenle eşleşiyor mu? | CheckpointMismatchError |
+| Fingerprint | MI eşleme parmak izi değişmiş mi? | MappingDriftError |
 
 ---
 
 ## 3. Tutarlılık Kontrolü
 
+### 3.1 Akış Diyagramı
+
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Caller as Çağıran Bileşen
-    participant Guard as Tutarlılık Denetimi
-    participant Result as Sonuç
+    participant API
+    participant Guard
     
-    Caller->>+Guard: check_consistency(superclass_mi_prob, binary_mi_prob)
+    API->>Guard: check(P_super, P_binary)
     
-    Guard->>Guard: superclass_esik = 0.01 (yüksek duyarlılık)
-    Guard->>Guard: binary_esik = 0.5 (standart)
-    
-    Guard->>Guard: superclass_karar = (P_super >= 0.01)
-    Guard->>Guard: binary_karar = (P_binary >= 0.5)
+    Guard->>Guard: super_karar = P >= 0.01
+    Guard->>Guard: binary_karar = P >= 0.5
     
     alt Her İkisi Pozitif
-        Guard->>+Result: AGREE_MI
-        Note right of Result: Triaj: YÜKSEK<br/>MI Onaylandı
+        Guard-->>API: AGREE_MI, YÜKSEK
     else Her İkisi Negatif
-        Guard->>+Result: AGREE_NO_MI
-        Note right of Result: Triaj: DÜŞÜK<br/>Normal
-    else Superclass+, Binary-
-        Guard->>+Result: DISAGREE_TYPE_1
-        Note right of Result: Triaj: İNCELEME<br/>Düşük Güvenli MI
-    else Superclass-, Binary+
-        Guard->>+Result: DISAGREE_TYPE_2
-        Note right of Result: Triaj: İNCELEME<br/>Olası Kaçırılmış MI
+        Guard-->>API: AGREE_NO_MI, DÜŞÜK
+    else Uyumsuz
+        Guard-->>API: DISAGREE, İNCELEME
     end
-    
-    Result-->>-Guard: ConsistencyResult
-    Guard-->>-Caller: sonuç, triaj, uyarılar
-    
-    Caller->>+Guard: should_run_localization(consistency)
-    alt AGREE_MI veya DISAGREE_TYPE_1
-        Guard-->>Caller: True (Lokalizasyon çalıştır)
-    else Diğer
-        Guard-->>Caller: False (Atla)
-    end
-    Guard-->>-Caller: karar
 ```
+
+### 3.2 Karar Matrisi
+
+| Superclass MI | Binary MI | Sonuç | Triaj |
+|---------------|-----------|-------|-------|
+| ≥ 0.01 | ≥ 0.5 | AGREE_MI | Yüksek |
+| < 0.01 | < 0.5 | AGREE_NO_MI | Düşük |
+| ≥ 0.01 | < 0.5 | DISAGREE_TYPE_1 | İnceleme |
+| < 0.01 | ≥ 0.5 | DISAGREE_TYPE_2 | İnceleme |
 
 ---
 
 ## 4. XGBoost Hibrit Pipeline
 
+### 4.1 Akış Diyagramı
+
 ```mermaid
 sequenceDiagram
     autonumber
-    participant API as API Servisi
-    participant Backbone as CNN Omurgası
-    participant Scaler as StandardScaler
-    participant XGB as XGBoost
-    participant Calib as Kalibratör
-    participant Ensemble as Ensemble
+    participant API
+    participant Backbone
+    participant Scaler
+    participant XGB
+    participant Calib
     
-    API->>+Backbone: backbone.forward(X_tensor)
-    Note right of Backbone: Conv1d × 2<br/>BatchNorm<br/>ReLU, Dropout<br/>AdaptiveAvgPool
-    Backbone-->>-API: gömme: 64-boyutlu vektör
+    API->>Backbone: Gömme Çıkar
+    Backbone-->>API: 64-dim vektör
     
-    API->>+Scaler: transform(gömme)
-    Note right of Scaler: Z-skoru normalizasyonu<br/>(x - μ) / σ
-    Scaler-->>-API: ölçekli_gömme
+    API->>Scaler: Ölçekle
+    Scaler-->>API: Normalize
     
-    rect rgb(240, 255, 240)
-        Note over XGB, Calib: Sınıf Başına Tahmin
-        loop MI, STTC, CD, HYP
-            API->>+XGB: predict_proba(ölçekli_gömme)
-            XGB->>XGB: Karar ağacı ensemble
-            XGB-->>-API: P_raw
-            
-            API->>+Calib: transform(P_raw)
-            Note right of Calib: İzotonik Regresyon
-            Calib-->>-API: P_calibrated
-        end
+    loop Her Sınıf
+        API->>XGB: predict_proba
+        XGB-->>API: P_raw
+        API->>Calib: Kalibre Et
+        Calib-->>API: P_calibrated
     end
     
-    API->>+Ensemble: combine(P_cnn, P_xgb, alpha=0.15)
-    Note right of Ensemble: P_final = α×P_cnn + (1-α)×P_xgb<br/>α = 0.15 (XGBoost ağırlıklı)
-    Ensemble-->>-API: P_ensemble
+    API->>API: Ensemble
 ```
+
+### 4.2 Ensemble Formülü
+
+```
+P_final = α × P_cnn + (1 - α) × P_xgb
+```
+
+Varsayılan: α = 0.15 (XGBoost ağırlıklı)
 
 ---
 
 ## 5. Grad-CAM Üretimi
 
+### 5.1 Akış Diyagramı
+
 ```mermaid
 sequenceDiagram
     autonumber
-    participant API as API Servisi
+    participant API
     participant GC as GradCAM
-    participant Model as CNN Modeli
-    participant Viz as Görselleştirici
+    participant Model
     
-    API->>+GC: GradCAM(model, target_layer)
-    GC->>GC: gradients = None
-    GC->>GC: activations = None
-    GC->>Model: register_forward_hook()
-    GC->>Model: register_backward_hook()
-    GC-->>-API: gradcam örneği
+    API->>GC: Başlat(model, katman)
+    GC->>Model: Hook Kaydet
     
-    API->>+GC: generate(X_tensor, class_index)
+    API->>GC: generate(sinyal, sınıf)
+    GC->>Model: İleri Geçiş
+    Model-->>GC: Aktivasyonlar
     
-    rect rgb(240, 248, 255)
-        Note over GC, Model: İleri Geçiş
-        GC->>+Model: forward(X_tensor)
-        Note right of Model: Aktivasyonlar yakalandı
-        Model-->>-GC: logits
-    end
+    GC->>Model: Geri Geçiş
+    Model-->>GC: Gradyanlar
     
-    rect rgb(255, 248, 240)
-        Note over GC, Model: Geri Geçiş
-        GC->>GC: score = logits[:, class_index].sum()
-        GC->>+Model: score.backward()
-        Note right of Model: Gradyanlar yakalandı
-        Model-->>-GC: gradyanlar hesaplandı
-    end
-    
-    rect rgb(240, 255, 240)
-        Note over GC: Isı Haritası Hesaplama
-        GC->>GC: weights = mean(gradients, dim=temporal)
-        GC->>GC: cam = sum(weights × activations)
-        GC->>GC: cam = ReLU(cam)
-        GC->>GC: cam = normalize(cam, [0, 1])
-    end
-    
-    GC-->>-API: cam_heatmap (1000 nokta)
-    
-    API->>+Viz: plot_gradcam_overlay(sinyal, cam, sınıf)
-    Viz->>Viz: 12 derivasyon grafiği oluştur
-    Viz->>Viz: Isı haritası bindirme
-    Viz-->>-API: figure
-    
-    API->>API: save("gradcam_MI.png")
+    GC->>GC: Ağırlıklı Toplam
+    GC->>GC: ReLU + Normalize
+    GC-->>API: Isı Haritası
 ```
+
+### 5.2 Grad-CAM Hesaplama Adımları
+
+| Adım | İşlem | Çıktı |
+|------|-------|-------|
+| 1 | İleri geçiş | Aktivasyonlar (A) |
+| 2 | Geri geçiş | Gradyanlar (∂y/∂A) |
+| 3 | Global ortalama | Ağırlıklar (α) |
+| 4 | Ağırlıklı toplam | Σ(α × A) |
+| 5 | ReLU | max(0, cam) |
+| 6 | Normalize | [0, 1] aralığı |
 
 ---
 
 ## 6. Sağlık Kontrolü
 
+### 6.1 Akış Diyagramı
+
 ```mermaid
 sequenceDiagram
     autonumber
     participant LB as Yük Dengeleyici
-    participant API as FastAPI
-    participant State as Uygulama Durumu
-    participant Models as Modeller
+    participant API
+    participant State
     
-    rect rgb(240, 255, 240)
-        Note over LB, API: Canlılık Kontrolü (Liveness)
-        loop Her 30 saniyede
-            LB->>+API: GET /health
-            API->>API: timestamp al
-            API-->>-LB: {"status": "ok", "timestamp": "..."}
-            
-            alt Yanıt Başarılı
-                Note right of LB: Servis çalışıyor
-            else Zaman Aşımı veya Hata
-                Note right of LB: Konteyneri yeniden başlat
-            end
-        end
+    loop Her 30 Saniye
+        LB->>API: GET /health
+        API-->>LB: status: ok
     end
     
-    rect rgb(240, 248, 255)
-        Note over LB, Models: Hazırlık Kontrolü (Readiness)
-        loop Her 10 saniyede
-            LB->>+API: GET /ready
-            
-            API->>+State: check_models_loaded()
-            State->>+Models: superclass_model?
-            Models-->>-State: True
-            State->>+Models: binary_model?
-            Models-->>-State: True
-            State->>+Models: localization_model?
-            Models-->>-State: True
-            State->>+Models: xgb_models?
-            Models-->>-State: True
-            State-->>-API: models_loaded: tümü True
-            
-            API-->>-LB: {"ready": true, "models_loaded": {...}}
-            
-            alt Hazır
-                Note right of LB: Trafiği yönlendir
-            else Hazır Değil
-                Note right of LB: Yönlendirmeyi atla
-            end
-        end
+    loop Her 10 Saniye
+        LB->>API: GET /ready
+        API->>State: Model Durumu
+        State-->>API: Yükleme Bilgisi
+        API-->>LB: ready: true/false
     end
 ```
+
+### 6.2 Health Check Endpoints
+
+| Endpoint | Amaç | Yanıt |
+|----------|------|-------|
+| /health | Canlılık kontrolü | {"status": "ok"} |
+| /ready | Hazırlık kontrolü | {"ready": true/false} |
 
 ---
 
 ## 7. Hata Senaryoları
 
+### 7.1 Akış Diyagramı
+
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Istemci as İstemci
-    participant API as FastAPI
-    participant Parser as Ayrıştırıcı
-    participant Model as Model
+    participant K as İstemci
+    participant API
     
-    rect rgb(255, 240, 240)
-        Note over Istemci, Parser: Senaryo 1: Geçersiz Dosya Formatı
-        Istemci->>+API: POST /predict (file.txt)
-        API->>+Parser: parse_ecg_file()
-        Parser->>Parser: Uzantı kontrolü
-        Parser-->>-API: ValueError
-        API-->>-Istemci: HTTP 400: "Desteklenmeyen format"
-    end
+    K->>API: Geçersiz Format
+    API-->>K: 400 Format Hatası
     
-    rect rgb(255, 248, 240)
-        Note over Istemci, Parser: Senaryo 2: Yanlış Sinyal Boyutu
-        Istemci->>+API: POST /predict (wrong.npz)
-        API->>+Parser: parse_ecg_file()
-        Parser->>Parser: Boyut kontrolü: (8, 500)
-        Parser-->>-API: ValueError
-        API-->>-Istemci: HTTP 400: "Beklenen (12, 1000)"
-    end
+    K->>API: Yanlış Boyut
+    API-->>K: 400 Boyut Hatası
     
-    rect rgb(240, 240, 255)
-        Note over Istemci, Model: Senaryo 3: Model Yüklenmemiş
-        Istemci->>+API: POST /predict (valid.npz)
-        API->>API: State.is_loaded kontrolü
-        API-->>-Istemci: HTTP 503: "Modeller yüklenmedi"
-    end
-    
-    rect rgb(255, 240, 255)
-        Note over Istemci, Model: Senaryo 4: İç Hata
-        Istemci->>+API: POST /predict (valid.npz)
-        API->>+Model: forward(X_tensor)
-        Model->>Model: RuntimeError
-        Model-->>-API: Exception
-        API->>API: Hata günlükle
-        API-->>-Istemci: HTTP 500: "Tahmin başarısız"
-    end
+    K->>API: Model Yüklenmemiş
+    API-->>K: 503 Servis Hazır Değil
 ```
+
+### 7.2 Hata Kodları
+
+| Kod | Açıklama | Çözüm |
+|-----|----------|-------|
+| 400 | Geçersiz girdi | Dosya formatını kontrol edin |
+| 503 | Servis hazır değil | Modellerin yüklenmesini bekleyin |
+| 500 | İç hata | Günlükleri inceleyin |
 
 ---
 
@@ -412,46 +299,30 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant API as API Servisi
-    participant RAG as RAG Retriever
-    participant VectorDB as Vektör Veritabanı
-    participant LLM as Büyük Dil Modeli
+    participant API
+    participant RAG
+    participant LLM
     
-    API->>+RAG: retrieve_context(tahmin_sonucu)
-    RAG->>RAG: Sorgu gömme vektörü oluştur
-    RAG->>+VectorDB: similarity_search(query_embedding)
-    VectorDB-->>-RAG: İlgili klinik kılavuzlar
-    RAG-->>-API: bağlam_belgeleri
+    API->>RAG: Tahmin + Sorgu
+    RAG-->>API: Klinik Kılavuzlar
     
-    API->>+LLM: generate_report(tahmin, bağlam)
-    LLM->>LLM: Bulguları formatla
-    LLM->>LLM: Klinik öneriler oluştur
-    LLM-->>-API: klinik_rapor
+    API->>LLM: Tahmin + Bağlam
+    LLM-->>API: Klinik Rapor
 ```
 
 ### 8.2 Belirsizlik Tahmini
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant API as API Servisi
-    participant Model as CNN Model
-    participant Stats as İstatistik Modülü
+    participant API
+    participant Model
     
-    API->>Model: model.train() (dropout aktif)
-    
-    loop N iterasyon (N=30)
-        API->>+Model: forward(X_tensor)
-        Note right of Model: Dropout rasgele<br/>farklı sonuçlar
-        Model-->>-API: tahmin_i
+    loop N=30
+        API->>Model: Dropout Aktif
+        Model-->>API: Tahmin_i
     end
     
-    API->>+Stats: compute_statistics(tahminler)
-    Stats->>Stats: ortalama = mean(tahminler)
-    Stats->>Stats: varyans = var(tahminler)
-    Stats->>Stats: güven_aralığı = 1.96 × std
-    Stats-->>-API: {ortalama, varyans, güven_aralığı}
+    API->>API: Ortalama + Varyans
 ```
 
 ---
@@ -462,7 +333,6 @@ sequenceDiagram
 |-----|----------|-------|------|
 | Yazılım Mimarı | | | |
 | Teknik Lider | | | |
-| Kalite Güvence Mühendisi | | | |
 
 ---
 
